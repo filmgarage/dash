@@ -1,4 +1,4 @@
-# DASH add-on (v0.1.2)
+# DASH add-on (v0.1.3)
 
 First base of the DASH add-on for Home Assistant. It replaces AppDaemon for the screens.
 
