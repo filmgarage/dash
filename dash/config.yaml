@@ -1,0 +1,27 @@
+name: DASH
+version: "0.1.0"
+slug: dash
+description: Dashboards for screens, with live updates from Home Assistant
+arch:
+  - amd64
+  - aarch64
+  - armv7
+init: false
+startup: application
+boot: auto
+ingress: true
+ingress_port: 8099
+panel_icon: mdi:view-dashboard
+panel_title: DASH
+panel_admin: true
+homeassistant_api: true
+ports:
+  8092/tcp: 8092
+ports_description:
+  8092/tcp: Screens (frame and dashboards)
+options:
+  read_token: ""
+  log_level: info
+schema:
+  read_token: password
+  log_level: list(debug|info|warning|error)

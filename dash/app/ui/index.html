@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>DASH</title>
+  <style>
+    :root { --bg:#f5f5f4; --fg:#1c1c1c; --muted:#6b6b6b; --line:#e2e2e0; --card:#ffffff; }
+    @media (prefers-color-scheme: dark) {
+      :root:not([data-theme="light"]) { --bg:#141414; --fg:#eaeaea; --muted:#9a9a9a; --line:#2c2c2c; --card:#1d1d1d; }
+    }
+    :root[data-theme="dark"] { --bg:#141414; --fg:#eaeaea; --muted:#9a9a9a; --line:#2c2c2c; --card:#1d1d1d; }
+    body { margin:0; background:var(--bg); color:var(--fg); font:15px system-ui, sans-serif; }
+    header { padding:16px; border-bottom:1px solid var(--line); background:var(--card); position:sticky; top:0; }
+    h1 { font-size:20px; margin:0 0 4px; }
+    .bar { display:flex; flex-wrap:wrap; gap:8px; align-items:center; padding:12px 16px; }
+    input[type=search], select { padding:8px; border:1px solid var(--line); border-radius:8px; background:var(--card); color:var(--fg); font:inherit; }
+    input[type=search] { flex:1 1 220px; }
+    button { padding:8px 12px; border-radius:8px; border:1px solid var(--line); background:var(--card); color:var(--fg); font:inherit; cursor:pointer; }
+    .muted { color:var(--muted); font-size:13px; }
+    #list { padding:0 16px 32px; }
+    .row { display:grid; grid-template-columns:28px 1fr auto; gap:12px; align-items:center; padding:10px 8px; border-bottom:1px solid var(--line); cursor:pointer; }
+    .row small { color:var(--muted); display:block; word-break:break-all; }
+    .dom { font-size:12px; color:var(--muted); }
+    #status { min-width:140px; text-align:right; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>DASH: entities for the screens</h1>
+    <div id="conn" class="muted">Loading…</div>
+  </header>
+
+  <div class="bar">
+    <input id="search" type="search" placeholder="Search name or entity id">
+    <select id="domain"><option value="">All domains</option></select>
+    <label class="muted"><input id="onlySel" type="checkbox"> Only selected</label>
+    <button id="selAll" type="button">Select visible</button>
+    <button id="selNone" type="button">Clear visible</button>
+    <span id="count" class="muted"></span>
+    <span id="status" class="muted"></span>
+  </div>
+
+  <p class="muted" style="padding:0 16px">Only the entities you select here are sent to the screens. Changes save automatically.</p>
+
+  <div id="list"></div>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    let all = [];
+    const selected = new Set();
+    let timer = null;
+
+    async function getJSON(url, opts) {
+      const r = await fetch(url, opts);
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(data.error || ("HTTP " + r.status));
+      return data;
+    }
+
+    function setStatus(text) { $("status").textContent = text; }
+
+    async function load() {
+      try {
+        const [status, ents, sel] = await Promise.all([
+          getJSON("api/status"), getJSON("api/ha/entities"), getJSON("api/selection"),
+        ]);
+        all = ents.entities;
+        sel.entities.forEach((e) => selected.add(e));
+        $("conn").textContent =
+          "Home Assistant: " + (status.ha_connected ? "connected" : "not connected") +
+          " · screen token: " + (status.screen_token_set ? "set" : "NOT SET (add it in the add-on options)");
+        const domains = [...new Set(all.map((e) => e.domain))].sort();
+        for (const d of domains) {
+          const o = document.createElement("option");
+          o.value = d;
+          o.textContent = d;
+          $("domain").appendChild(o);
+        }
+        render();
+        setStatus("");
+      } catch (err) {
+        setStatus("Error: " + err.message);
+      }
+    }
+
+    function visible() {
+      const q = $("search").value.trim().toLowerCase();
+      const dom = $("domain").value;
+      const onlySel = $("onlySel").checked;
+      return all.filter((e) =>
+        (!dom || e.domain === dom) &&
+        (!q || e.entity_id.includes(q) || e.name.toLowerCase().includes(q)) &&
+        (!onlySel || selected.has(e.entity_id)));
+    }
+
+    function updateCount() {
+      $("count").textContent = selected.size + " selected of " + all.length;
+    }
+
+    function render() {
+      const list = $("list");
+      list.replaceChildren();
+      const items = visible();
+      for (const e of items) {
+        const row = document.createElement("label");
+        row.className = "row";
+        const box = document.createElement("input");
+        box.type = "checkbox";
+        box.checked = selected.has(e.entity_id);
+        box.addEventListener("change", () => {
+          if (box.checked) { selected.add(e.entity_id); } else { selected.delete(e.entity_id); }
+          updateCount();
+          save();
+        });
+        const text = document.createElement("div");
+        const name = document.createElement("div");
+        name.textContent = e.name;
+        const id = document.createElement("small");
+        id.textContent = e.entity_id;
+        text.append(name, id);
+        const dom = document.createElement("span");
+        dom.className = "dom";
+        dom.textContent = e.domain;
+        row.append(box, text, dom);
+        list.appendChild(row);
+      }
+      if (!items.length) {
+        const p = document.createElement("p");
+        p.className = "muted";
+        p.textContent = "No entities match.";
+        list.appendChild(p);
+      }
+      updateCount();
+    }
+
+    function save() {
+      clearTimeout(timer);
+      setStatus("Saving…");
+      timer = setTimeout(async () => {
+        try {
+          const r = await getJSON("api/selection", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ entities: [...selected] }),
+          });
+          setStatus("Saved (" + r.count + ")");
+        } catch (err) {
+          setStatus("Error: " + err.message);
+        }
+      }, 400);
+    }
+
+    function bulk(on) {
+      for (const e of visible()) {
+        if (on) { selected.add(e.entity_id); } else { selected.delete(e.entity_id); }
+      }
+      render();
+      save();
+    }
+
+    $("search").addEventListener("input", render);
+    $("domain").addEventListener("change", render);
+    $("onlySel").addEventListener("change", render);
+    $("selAll").addEventListener("click", () => bulk(true));
+    $("selNone").addEventListener("click", () => bulk(false));
+    load();
+  </script>
+</body>
+</html>
