@@ -139,10 +139,13 @@ async def ui_status(request):
 
 
 async def ui_ha_entities(request):
+    if not SUPERVISOR_TOKEN:
+        return error("no Supervisor token: homeassistant_api is not active. Rebuild the add-on after "
+                     "updating config.yaml (version 0.1.1 or later)", 503)
     async with request.app["http"].get(f"{SUPERVISOR_URL}/core/api/states",
                                        headers=supervisor_headers()) as r:
         if r.status != 200:
-            return error(f"Home Assistant answered {r.status}", 502)
+            return error(f"Home Assistant answered {r.status} to the entity list", 502)
         states = await r.json()
     items = []
     for s in states:

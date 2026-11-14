@@ -1,4 +1,4 @@
-# DASH add-on (v0.1.0)
+# DASH add-on (v0.1.1)
 
 First base of the DASH add-on for Home Assistant. It replaces AppDaemon for the screens.
 
@@ -39,7 +39,7 @@ All requests need the token: `?token=<read_token>` or `Authorization: Bearer <re
 - Screens need the read token. Without a token set, all screen requests return `503`.
 - The screen port only offers the screen API, never the interface.
 
-## Known limits (v0.1.0)
+## Known limits (v0.1.1)
 
 - Not yet tested against a live Home Assistant. Test the websocket and the service calls first.
 - The screen token is a single shared secret. A per-screen token comes later.
