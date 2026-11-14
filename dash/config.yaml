@@ -1,5 +1,5 @@
 name: DASH
-version: "0.1.1"
+version: "0.1.2"
 slug: dash
 description: Dashboards for screens, with live updates from Home Assistant
 arch:
