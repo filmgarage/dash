@@ -17,6 +17,7 @@ from aiohttp import ClientSession, WSMsgType, web
 from ha_bridge import HaBridge, public_view
 
 log = logging.getLogger("dash")
+APP_VERSION = "0.1.3"
 
 APP_DIR = Path(__file__).resolve().parent
 DATA_DIR = Path(os.environ.get("DATA_DIR", "/data"))
@@ -280,8 +281,12 @@ async def main():
     logging.basicConfig(level=str(options.get("log_level", "info")).upper(),
                         format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     DATA_DIR.mkdir(parents=True, exist_ok=True)
+    log.info("DASH add-on version %s", APP_VERSION)
+    log.info("Supervisor environment variables present: %s",
+             sorted(k for k in os.environ if "SUPERVISOR" in k or k.startswith("HASS")) or "none")
     if not SUPERVISOR_TOKEN:
-        log.error("SUPERVISOR_TOKEN is missing; homeassistant_api must be enabled in config.yaml")
+        log.error("SUPERVISOR_TOKEN is missing. Check that the add-on runs version %s and that "
+                  "homeassistant_api: true is in its config.yaml; then rebuild the add-on", APP_VERSION)
     selection = Selection(SELECTION_PATH)
     http = ClientSession()
     hub = Hub()
