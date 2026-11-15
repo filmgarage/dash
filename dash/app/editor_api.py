@@ -1,0 +1,280 @@
+"""Editor API. Served through Home Assistant Ingress only, so it needs no token."""
+from aiohttp import web
+
+from errors import ApiError
+from settings import APP_VERSION, PUBLISH_URL, SCREEN_PORT, UI_DIR
+from store import checked, parse_path
+from web_common import (ENTITY_ATTRIBUTE_KEYS, SERVICE_NAME_RE, handle_errors, is_allowed,
+                        json_body, picture_response, plain_state, service_data)
+
+
+@handle_errors
+async def index(request):
+    return web.FileResponse(UI_DIR / "index.html")
+
+
+@handle_errors
+async def status(request):
+    app = request.app
+    return web.json_response({
+        "version": APP_VERSION,
+        "state": "running",
+        "ha_connected": app["bridge"].connected,
+        "active_entities": len(app["active"].entities),
+        "read_token": app["options"]["read_token"],
+        "screen_port": SCREEN_PORT,
+        "publish_url_prefix": PUBLISH_URL + "/",
+    })
+
+
+@handle_errors
+async def entities(request):
+    app = request.app
+    app["ha"].require_token()
+    items = []
+    for s in await app["ha"].states():
+        entity_id = s.get("entity_id", "")
+        if not is_allowed(app["options"], entity_id):
+            continue
+        attrs = s.get("attributes") or {}
+        items.append({
+            "entity_id": entity_id,
+            "name": attrs.get("friendly_name", entity_id),
+            "icon": attrs.get("icon", "") or "",
+            "device_class": attrs.get("device_class", "") or "",
+            "unit": attrs.get("unit_of_measurement", "") or "",
+            "state_class": attrs.get("state_class", "") or "",
+            "area": "",
+            "attributes": {k: attrs.get(k) for k in ENTITY_ATTRIBUTE_KEYS},
+        })
+    items.sort(key=lambda item: item["entity_id"])
+    return web.json_response({"entities": items})
+
+
+@handle_errors
+async def states(request):
+    app = request.app
+    app["ha"].require_token()
+    ids = [i.strip() for i in request.query.get("ids", "").split(",") if i.strip()][:100]
+    out = {}
+    for entity_id in ids:
+        if not is_allowed(app["options"], entity_id):
+            continue
+        s = await app["ha"].state(entity_id)
+        if s is not None:
+            out[entity_id] = plain_state(entity_id, s)
+    return web.json_response({"states": out})
+
+
+@handle_errors
+async def service(request):
+    app = request.app
+    app["ha"].require_token()
+    entity_id = request.query.get("entity_id", "")
+    name = request.query.get("service", "")
+    if not is_allowed(app["options"], entity_id):
+        raise ApiError("entity not allowed", 403)
+    if not SERVICE_NAME_RE.match(name) or name not in app["options"]["services"]:
+        raise ApiError("service not allowed", 403)
+    data = service_data(request.query)
+    s = await app["ha"].state(entity_id)
+    if s is None:
+        raise ApiError("entity not found", 404)
+    if s.get("state") == "unavailable":
+        raise ApiError("entity unavailable", 503)
+    await app["ha"].call_service(entity_id, name, data)
+    return web.json_response({"ok": True})
+
+
+@handle_errors
+async def layouts(request):
+    store = request.app["store"]
+    return web.json_response({"layouts": store.names(), "tree": store.tree()})
+
+
+@handle_errors
+async def layout_load(request):
+    parts = checked(parse_path(request.query.get("path") or request.query.get("name")))
+    return web.json_response({"layout": request.app["store"].load_layout(parts)})
+
+
+@handle_errors
+async def layout_save(request):
+    parts = checked(parse_path(request.query.get("path") or request.query.get("name")))
+    body = await json_body(request)
+    if body is None or "tiles" not in body:
+        raise ApiError("no layout body found", 400)
+    saved = request.app["store"].save_layout(parts, body, request.query.get("if_saved", ""))
+    return web.json_response({"ok": True, "path": "/".join(parts), "saved": saved})
+
+
+@handle_errors
+async def layout_move(request):
+    src = checked(parse_path(request.query.get("from")))
+    dst = checked(parse_path(request.query.get("to")))
+    request.app["store"].move_layout(src, dst)
+    return web.json_response({"ok": True, "path": "/".join(dst)})
+
+
+@handle_errors
+async def layout_delete(request):
+    parts = checked(parse_path(request.query.get("path")))
+    request.app["store"].delete_layout(parts)
+    return web.json_response({"ok": True})
+
+
+@handle_errors
+async def folder_create(request):
+    parts = checked(parse_path(request.query.get("path")))
+    request.app["store"].create_folder(parts)
+    return web.json_response({"ok": True})
+
+
+@handle_errors
+async def folder_delete(request):
+    parts = checked(parse_path(request.query.get("path")))
+    request.app["store"].delete_folder(parts)
+    return web.json_response({"ok": True})
+
+
+def publish_kind(request):
+    kind = request.query.get("type", "html")
+    if kind not in ("html", "json"):
+        raise ApiError("unknown type (use html or json)", 400)
+    return kind
+
+
+@handle_errors
+async def publish_save(request):
+    app = request.app
+    store = app["store"]
+    kind = publish_kind(request)
+    parts = parse_path(request.query.get("path"))
+    if parts is None:
+        raise ApiError("invalid path", 400)
+    body = await json_body(request) or {}
+    if kind == "json":
+        skin = body.get("json")
+        if not isinstance(skin, dict):
+            raise ApiError('no skin in body (expected {"json": {...}})', 400)
+        url = store.publish_skin(parts, skin)
+        return web.json_response({"ok": True, "path": "/".join(parts), "url": url})
+
+    html = body.get("html")
+    if not isinstance(html, str):
+        raise ApiError('no html in body (expected {"html": "..."})', 400)
+    url = store.publish_html(parts, html)
+    key = "/".join(parts)
+    if store.has_layout(parts):
+        saved = store.snapshot_layout(parts)
+        added, removed = app["active"].set_page(key, store.published_entities(parts))
+        await app["hub"].broadcast_layout(key, saved)
+    else:
+        added, removed = app["active"].remove_page(key)
+    return web.json_response({
+        "ok": True, "path": key, "url": url,
+        "entities": sorted(store.published_entities(parts)),
+        "added": added, "removed": removed,
+    })
+
+
+@handle_errors
+async def publish_delete(request):
+    app = request.app
+    kind = publish_kind(request)
+    parts = parse_path(request.query.get("path"))
+    if parts is None:
+        raise ApiError("invalid path", 400)
+    if kind == "json":
+        app["store"].delete_skin(parts)
+    else:
+        key = "/".join(parts)
+        app["store"].delete_page(parts)
+        app["active"].remove_page(key)
+        await app["hub"].broadcast_layout(key, None)
+    return web.json_response({"ok": True})
+
+
+@handle_errors
+async def publish_list(request):
+    return web.json_response({"pages": request.app["store"].publish_list()})
+
+
+def image_owner(request):
+    layout = request.query.get("layout", "")
+    skin = request.query.get("skin", "")
+    if bool(layout) == bool(skin):
+        raise ApiError("send exactly one of layout and skin", 400)
+    if layout:
+        return "layout", parse_path(layout)
+    return "skin", skin
+
+
+@handle_errors
+async def image_upload(request):
+    body = await json_body(request) or {}
+    result = request.app["store"].upload_image(image_owner(request), request.query.get("name", ""),
+                                               body.get("data_url"))
+    return web.json_response(result)
+
+
+@handle_errors
+async def image_list(request):
+    return web.json_response(request.app["store"].list_images(image_owner(request)))
+
+
+@handle_errors
+async def image_delete(request):
+    request.app["store"].delete_image(image_owner(request), request.query.get("name", ""))
+    return web.json_response({"ok": True})
+
+
+@handle_errors
+async def published_file(request):
+    return web.FileResponse(request.app["store"].file_path(request.query.get("path", "")))
+
+
+@handle_errors
+async def imagedata(request):
+    app = request.app
+    entity_id = request.query.get("entity", "")
+    if not entity_id.startswith("image.") or not is_allowed(app["options"], entity_id):
+        raise ApiError("no allowed image entity", 403)
+    app["ha"].require_token()
+    return await picture_response(app, entity_id, request.query.get("hash", ""))
+
+
+@handle_errors
+async def active(request):
+    app = request.app
+    reasons = app["active"].reasons()
+    known = app["bridge"].states
+    items = [{"entity_id": entity_id, "layouts": reasons.get(entity_id, []),
+              "missing": entity_id not in known}
+             for entity_id in sorted(app["active"].entities)]
+    return web.json_response({"active": items})
+
+
+def add_routes(app):
+    router = app.router
+    router.add_get("/", index)
+    router.add_get("/api/status", status)
+    router.add_get("/api/entities", entities)
+    router.add_get("/api/states", states)
+    router.add_get("/api/service", service)
+    router.add_get("/api/layouts", layouts)
+    router.add_get("/api/layout_load", layout_load)
+    router.add_post("/api/layout_save", layout_save)
+    router.add_post("/api/layout_move", layout_move)
+    router.add_post("/api/layout_delete", layout_delete)
+    router.add_post("/api/folder_create", folder_create)
+    router.add_post("/api/folder_delete", folder_delete)
+    router.add_post("/api/publish_save", publish_save)
+    router.add_post("/api/publish_delete", publish_delete)
+    router.add_get("/api/publish_list", publish_list)
+    router.add_post("/api/image_upload", image_upload)
+    router.add_get("/api/image_list", image_list)
+    router.add_post("/api/image_delete", image_delete)
+    router.add_get("/api/imagedata", imagedata)
+    router.add_get("/api/file", published_file)
+    router.add_get("/api/active", active)

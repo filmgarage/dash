@@ -1,7 +1,7 @@
 name: DASH
-version: "0.1.5"
+version: "0.3.1"
 slug: dash
-description: Dashboards for screens, with live updates from Home Assistant
+description: Live Home Assistant dashboards for simple screens
 arch:
   - amd64
   - aarch64
@@ -18,10 +18,19 @@ homeassistant_api: true
 ports:
   8092/tcp: 8092
 ports_description:
-  8092/tcp: Screens (frame and dashboards)
+  8092/tcp: Screens (dashboards for frames and tablets)
 options:
   read_token: ""
   log_level: info
+  allow_domains: []
+  services: []
+  read_services: []
 schema:
   read_token: password
   log_level: list(debug|info|warning|error)
+  allow_domains:
+    - str
+  services:
+    - str
+  read_services:
+    - str
