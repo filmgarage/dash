@@ -7,6 +7,7 @@ from aiohttp import WSMsgType, web
 from errors import ApiError
 from ha_bridge import public_view
 from store import checked, parse_path
+from settings import UI_DIR
 from web_common import (SERVICE_NAME_RE, check_screen_token, handle_errors, is_allowed,
                         picture_response, service_data)
 
@@ -116,10 +117,18 @@ async def live(request):
     return ws
 
 
+@handle_errors
+async def viewer_page(request):
+    return web.FileResponse(UI_DIR / "viewer.html")
+
+
 def add_routes(app):
     store = app["store"]
-    app.router.add_static(store.publish_url, store.publish_dir, show_index=False)
     router = app.router
+    # The viewer is part of the HA App. It is registered before the static route, so an old copy in
+    # the publish folder is never served.
+    router.add_get(store.publish_url + "/viewer.html", viewer_page)
+    router.add_static(store.publish_url, store.publish_dir, show_index=False)
     router.add_get("/health", health)
     router.add_get("/states", states)
     router.add_get("/layout_load", layout_load)

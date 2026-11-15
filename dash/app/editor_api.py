@@ -19,6 +19,17 @@ async def status_page(request):
 
 
 @handle_errors
+async def viewer_page(request):
+    return web.FileResponse(UI_DIR / "viewer.html")
+
+
+@handle_errors
+async def published_layout(request):
+    parts = checked(parse_path(request.query.get("path")))
+    return web.json_response({"layout": request.app["store"].load_published(parts)})
+
+
+@handle_errors
 async def status(request):
     app = request.app
     return web.json_response({
@@ -165,6 +176,8 @@ async def publish_save(request):
         url = store.publish_skin(parts, skin)
         return web.json_response({"ok": True, "path": "/".join(parts), "url": url})
 
+    if parts == ["viewer"]:
+        raise ApiError("the viewer is part of the HA App and is not published", 400)
     html = body.get("html")
     if not isinstance(html, str):
         raise ApiError('no html in body (expected {"html": "..."})', 400)
@@ -264,6 +277,8 @@ def add_routes(app):
     router = app.router
     router.add_get("/", index)
     router.add_get("/status", status_page)
+    router.add_get("/viewer", viewer_page)
+    router.add_get("/api/published_layout", published_layout)
     router.add_get("/api/status", status)
     router.add_get("/api/entities", entities)
     router.add_get("/api/states", states)

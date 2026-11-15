@@ -91,7 +91,7 @@ class ApiTests(unittest.IsolatedAsyncioTestCase):
     async def test_status_through_ingress(self):
         resp = await self.editor.get("/api/status", headers=INGRESS)
         self.assertEqual(resp.status, 200)
-        self.assertEqual((await resp.json())["version"], "0.3.1")
+        self.assertEqual((await resp.json())["version"], "0.4.0")
 
     async def test_publishing_adds_and_unpublishing_removes_entities(self):
         resp = await self.editor.post("/api/layout_save?path=kitchen/morning", json=LAYOUT, headers=INGRESS)
@@ -161,6 +161,29 @@ class ApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("text/html", resp.headers["Content-Type"])
         self.assertEqual((await self.editor.get("/status")).status, 403)
         self.assertEqual((await self.screen.get("/status")).status, 404)
+
+    async def test_viewer_on_screen_port_and_ingress(self):
+        resp = await self.screen.get("/dash/viewer.html")
+        self.assertEqual(resp.status, 200)
+        self.assertIn("text/html", resp.headers["Content-Type"])
+        resp = await self.editor.get("/viewer", headers=INGRESS)
+        self.assertEqual(resp.status, 200)
+        self.assertEqual((await self.editor.get("/viewer")).status, 403)
+
+    async def test_published_layout_only_through_ingress(self):
+        resp = await self.editor.get("/api/published_layout?path=kitchen/morning", headers=INGRESS)
+        self.assertEqual(resp.status, 404)
+        await self.editor.post("/api/layout_save?path=kitchen/morning", json=LAYOUT, headers=INGRESS)
+        await self.editor.post("/api/publish_save?path=kitchen/morning",
+                               json={"html": "<html></html>"}, headers=INGRESS)
+        resp = await self.editor.get("/api/published_layout?path=kitchen/morning", headers=INGRESS)
+        self.assertEqual((await resp.json())["layout"]["title"], "Morning")
+        self.assertEqual((await self.editor.get("/api/published_layout?path=kitchen/morning")).status, 403)
+
+    async def test_viewer_cannot_be_published_by_the_editor(self):
+        resp = await self.editor.post("/api/publish_save?path=viewer",
+                                      json={"html": "<html></html>"}, headers=INGRESS)
+        self.assertEqual(resp.status, 400)
 
     async def test_screen_sends_no_cors_headers(self):
         resp = await self.screen.get(f"/states?token={TOKEN}")

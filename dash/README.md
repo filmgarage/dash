@@ -1,4 +1,4 @@
-# DASH HA App (v0.3.1)
+# DASH HA App (v0.4.0)
 
 DASH is a Home Assistant app for simple, light web dashboards on screens such as a Fully Kiosk photo frame or a
 wall tablet. You design a layout in the DASH editor, publish it, and the screen shows it with live values from
@@ -120,7 +120,7 @@ http://HA_IP:8092/dash/viewer.html?layout=kitchen/morning&skin=night&token=YOUR_
 
 | Part | Meaning |
 |---|---|
-| `viewer.html` | The viewer. The editor publishes it once. |
+| `viewer.html` | The viewer. The HA App serves it; nothing to publish. |
 | `layout=` | The layout to show, as it is named in the editor, for example `kitchen/morning`. The layout must be published. |
 | `skin=` | The skin (colours, fonts, tile style). Optional; without it the default skin or the layout's own style is used. |
 | `token=` | The read token from the HA App options. |
@@ -151,7 +151,7 @@ The page is only reachable through Home Assistant's login, not on port 8092.
 |---|---|
 | `/data/layouts/` | Layouts (drafts and their saved state). |
 | `/data/published/` | The published version of each layout, which the screens use. |
-| `/data/www/dash/` | Published pages, `viewer.html`, skins and images. Served on port 8092 at `/dash/`. |
+| `/data/www/dash/` | Published pages, skins and images. Served on port 8092 at `/dash/`. |
 | `/data/active.json` | The monitored entities and the layouts that use them. |
 
 Everything is in the HA App's data folder, so it is kept across updates and included in backups.

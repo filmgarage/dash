@@ -1,6 +1,6 @@
 # Contract: DASH
 
-**Version:** 8.2 (replaces 8.1)
+**Version:** 8.3 (replaces 8.2 in sections 1, 2, 3.4, 4.2, 6 and 10)
 
 This contract describes how the designer (the editor front end) works with the DASH HA App. The HA App serves the
 editor through Home Assistant Ingress and serves the screens on port 8092 of the Home Assistant host.
@@ -23,6 +23,16 @@ Everything not mentioned here is unchanged from version 7.1: the layout format (
 
 Sections of 8.1 that conflict with this section are superseded by it.
 
+## 0b. Changes in version 8.3 (viewer)
+
+- The viewer is no longer part of the editor. It is a separate page, `app/ui/viewer.html`, delivered with the HA App.
+  The editor does not publish it, does not embed it and does not check its version.
+- The same file is served in two places: on the screen server for Fully Kiosk and the wall tablets (section 6.1), and
+  on Ingress for a preview that the designer opens in a separate tab (section 6.2).
+- New editor endpoint `api/published_layout` (section 3.4). The Ingress viewer loads the published copy of a layout with
+  it, never the draft.
+- The editor never embeds the viewer in an `<iframe>` (section 4.2).
+
 ## 0a. Changes from version 7.1
 
 - The designer API is part of the HA App. The AppDaemon endpoints (`/api/appdaemon/...`) are retired.
@@ -41,6 +51,7 @@ Sections of 8.1 that conflict with this section are superseded by it.
 |---|---|---|---|
 | Editor | Home Assistant Ingress (the DASH panel) | the designer in the browser | none; Ingress only lets logged-in Home Assistant users in |
 | Screen server | port `8092` on the Home Assistant host, local network only | viewer, Fully Kiosk | none for the pages under `/dash/`; read token for all data |
+| Viewer preview | Home Assistant Ingress (`viewer`), opened in a separate tab | the designer, to see a layout | Ingress only; no token |
 
 The editor does not need to know the host name or port of the HA App. Its requests are relative to the page it is
 loaded from. The editor URL must end with `/`.
@@ -58,7 +69,6 @@ loaded from. The editor URL must end with `/`.
     morning.json                  copy of layout kitchen/morning at its last publish
 
 /data/www/dash/                   published files, served on port 8092 at /dash/
-  viewer.html                     the viewer (section 6)
   kitchen/
     morning.html                  published page of kitchen/morning
     morning/
@@ -106,7 +116,7 @@ All paths are relative to the editor page. No token. Same parameters and respons
 ### 3.1 `api/status`
 
 ```json
-{"version": "0.3.1", "state": "running", "read_token": "<read token>", "screen_port": 8092,
+{"version": "0.4.0", "state": "running", "read_token": "<read token>", "screen_port": 8092,
  "publish_url_prefix": "/dash/", "ha_connected": true, "active_entities": 3}
 ```
 
@@ -130,6 +140,14 @@ All paths are relative to the editor page. No token. Same parameters and respons
 - `entities`: every entity used by the published version of this layout.
 - `added` / `removed`: the change in the monitored set caused by this publish.
 - Publishing stores a copy of the layout as it is at that moment. Screens show that copy (section 5).
+
+### 3.4 `api/published_layout`
+
+`GET api/published_layout?path=kitchen/morning` returns the **published** copy of a layout, the same JSON that
+`layout_load` returns on port 8092. It is used by the Ingress viewer (section 6.2).
+
+- `404 layout is not published` if the layout has no published copy.
+- The draft is never returned here.
 
 ### 3.3 `api/file`
 
@@ -209,8 +227,8 @@ responses. Scripts and tools that call the API directly still need the token (se
   instead of the screen endpoints.
 - If Home Assistant is opened over `https://`, the browser blocks any `http://<host>:8092` request from the editor
   as mixed content. The rule above avoids this problem.
-- A published page or the viewer may be shown in an `<iframe>` in the editor, using the URL from section 3.1. The
-  editor cannot read the content of that frame.
+- The editor never embeds a page in an `<iframe>`. The viewer (section 6) is not part of the editor. The designer
+  opens it in a new tab, either the Ingress viewer (section 6.2) or a screen URL (section 3.1).
 - The editor never uses a read token for its own calls. The token is shown only in the screen URL the editor builds.
 
 ## 5. Monitored entities (automatic selection)
@@ -236,17 +254,41 @@ responses. Scripts and tools that call the API directly still need the token (se
 
 ## 6. Viewer
 
-- One page: `/dash/viewer.html`, published once by the editor with `type` `html`.
-- URL: `http://<host>:8092/dash/viewer.html?layout=kitchen/morning&skin=night&token=<read token>`
-- The viewer uses the host and port it is loaded from. There is no `api` parameter.
-- The viewer contains **no token**. The token is in the URL, so anyone who can read the URL can read the token.
-  Keep `read_services` short (section 7).
-- The viewer loads the layout with `layout_load`, the skin from `/dash/skins/`, then uses `states` and the push channel.
+### 6.1 One file, two places
+
+- The viewer is one file: `app/ui/viewer.html`, part of the HA App. It is not published by the editor and it is not
+  part of `app/ui/index.html`.
+- It is served in two places, and it picks its transport from the place it is loaded from:
+
+| Place | URL | Transport | Token | Used for |
+|---|---|---|---|---|
+| Screen server | `http://<host>:8092/dash/viewer.html?layout=kitchen/morning&skin=night&token=<read token>` | push (`ws`), `layout_load`, `states`, `service`, `imagedata` on port 8092 | read token in the URL | Fully Kiosk and wall tablets |
+| Ingress | `<ingress URL>/viewer?layout=kitchen/morning&skin=night` | polling of the editor API (section 6.2) | none | the designer, in a separate tab |
+
+- The screen server serves the file at `/dash/viewer.html`. Ingress serves it at `viewer`. Both are routes of the HA App.
+- The viewer contains **no token**. On a screen the token is in the URL, so anyone who can read the URL can read the
+  token. Keep `read_services` short (section 7).
 - Tiles not on the layout cannot be switched (7.1 section 1.2).
-- After a layout is published again, the viewer gets a `layout` message on the push channel and reloads it.
-  Without push it notices the new `saved` within 30 seconds.
-- Image entities: `imagedata` on port 8092, polled every 10 seconds with the last `hash`.
-- Everything is plain `http` on one host and port. Browsers do not block the connection as mixed content.
+- Image entities: `imagedata` polled every 10 seconds with the last `hash`, on both places.
+
+### 6.2 The Ingress viewer
+
+- Loads the **published** copy: `api/published_layout`, not the draft (section 3.4).
+- Loads the skin from `api/file?path=skins/<name>.json`, and images through `api/file` and `api/imagedata`.
+- Uses `api/states` for the states of the layout, polled every 2 seconds. It does not use the push channel: a WebSocket
+  to port 8092 from the Ingress origin is not allowed by section 4.2.
+- Switching a tile uses `api/service` with the same rules as the editor preview (7.1 section 1.2).
+- Has no `api` parameter and no token. The base is the relative `api/` path of the page it is loaded from.
+
+### 6.3 Both places
+
+- The viewer loads the layout with `layout_load` (screen server) or `api/published_layout` (Ingress), the skin from
+  `/dash/skins/` (screen server) or `api/file` (Ingress), then uses `states` and the push channel (screen server) or
+  polling (Ingress).
+- After a layout is published again, a screen gets a `layout` message on the push channel and reloads it. Without push
+  it notices the new `saved` within 30 seconds. The Ingress viewer notices it on its next poll.
+- Everything on the screen server is plain `http` on one host and port. Browsers do not block the connection as mixed
+  content.
 
 ## 7. Configuration (HA App options)
 
@@ -301,7 +343,8 @@ Same as 7.1 section 5, with these changes:
 | Item | Without it |
 |---|---|
 | `api/publish_save` with `type=json` (skins and the default pointer) | skins cannot be saved; the default skin cannot be set |
-| `api/publish_save` of `viewer` (html) | no viewer, so no published page works |
+| `viewer.html` served by the HA App (6.1) | no viewer on the screen server, so no screen works |
+| `api/published_layout` (3.4) | the Ingress viewer cannot show a layout |
 | `api/imagedata` (editor) and `imagedata` (screen server) | image entity tiles stay empty |
 | `api/file` (editor) | layout images do not show in the editor preview |
 | Screen URLs built from `publish_url_prefix` and `screen_port` (3.1) | screen URLs point to the wrong place |

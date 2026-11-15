@@ -14,6 +14,7 @@ screen never needs a login menu.
 | `repository.yaml` | Makes this repository visible as an HA App repository in Home Assistant. |
 | `dash/` | The DASH HA App. See [dash/README.md](dash/README.md) for setup and screen URLs. |
 | `docs/CONTRACT.md` | The contract between the editor front end and the HA App's API. |
+| `docs/DESIGNER.md` | Guide for building the editor front end: delivery, rules and checklist. |
 | `dash/app/ui/status.html` | The status page: monitored entities and their layouts. See [Status page](#status-page). |
 
 ## Requirements
