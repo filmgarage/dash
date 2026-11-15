@@ -12,7 +12,7 @@ Home Assistant through Ingress and talks only to the HA App's editor API. The fu
   with relative paths (`assets/logo.png`), never with absolute paths.
 - **The whole file** on every delivery. Not a diff, not a fragment.
 - **First line:** a comment with your version and the contract version, for example
-  `<!-- DASH designer 1.0, contract 8.5 -->`.
+  `<!-- DASH designer 1.0, contract 8.6 -->`.
 - **Language:** English for all text in the file, including comments. Remove old comments and debug code before you
   deliver.
 

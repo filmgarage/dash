@@ -1,12 +1,18 @@
 # Contract: DASH
 
-**Version:** 8.5 (adds 0d and section 3.5; changes sections 3, 3.1, 4.1, 7, 7.1, 7.2, 8, 10, 11.4 and 12)
+**Version:** 8.6 (adds 0e and section 3.6; changes sections 3, 3.1, 4.2, 7, 7.1, 7.2, 8, 10, 11.4 and 12)
 
 This contract describes how the designer (the editor front end) works with the DASH HA App. The HA App serves the
 editor through Home Assistant Ingress and serves the screens on port 8092 of the Home Assistant host.
 
 Everything not mentioned here is unchanged from version 7.1: the layout format (sections 3 and 3a), layout paths
 (4.8), skins (11), default icons (13), image naming and limits (14, 8) and the error table (5).
+
+## 0e. Changes in version 8.6 (skin in the layout)
+
+- A layout may name the skin it uses (section 3.6). The editor shows that skin, uses it when it publishes the layout,
+  and adds it to the screen URL.
+- The built-in layouts are `dash`, `minimal` and `empty`; the editor creates missing ones on first connect (section 12.5).
 
 ## 0d. Changes in version 8.5 (screen address, options, thermostat and weather in the HA App)
 
@@ -143,7 +149,7 @@ All paths are relative to the editor page. No token. Same parameters and respons
 ### 3.1 `api/status`
 
 ```json
-{"version": "0.7.0", "state": "running", "read_token": "<read token>", "screen_port": 8092,
+{"version": "0.7.1", "state": "running", "read_token": "<read token>", "screen_port": 8092,
  "publish_url_prefix": "/dash/", "ha_connected": true, "active_entities": 3,
  "allowed_domains": ["light", "sensor", "switch"], "excluded_domains": ["alarm_control_panel", "lock"],
  "screen_address_mode": "ip", "screen_host": "192.168.69.248", "screen_host_source": "detected"}
@@ -202,6 +208,17 @@ option, saved, detected).
 - The answer is the status fields of 3.1.
 - `400 screen_ip must be an IPv4 address such as 192.168.1.10` when the value is not an IPv4 address.
 - The designer asks only when `screen_host` is `null` and `screen_address_mode` is `ip`.
+
+### 3.6 Layout field `skin`
+
+`skin` (optional): de naam van de skin die de editor bij deze layout toont en bij publiceren gebruikt
+
+- The HA App stores the field as part of the layout. It does not check the value; the editor checks that it names an
+  existing skin.
+- The viewer does not read the field: a screen gets its skin from the `skin` parameter of its URL (section 6.1).
+- The screen URL that the editor builds (sections 3.1 and 6.1) carries the layout's skin as `&skin=<name>`. A layout
+  without `skin` gets a URL without the parameter, and the viewer then uses the default skin (section 12.5).
+- Example: `http://192.168.69.248:8092/dash/viewer.html?layout=kitchen/morning&skin=night&token=<read token>`.
 
 ## 4. Screen server (port 8092)
 
@@ -551,9 +568,11 @@ A tap does not change the state of a tile. The HA App's state is the only source
 
 ### 12.5. Built-in files
 
-- The editor has one built-in layout, `dash`, and two built-in skins, `dash` (default) and `minimal`.
-- When it connects and a built-in file is missing, the editor creates it: `layout_save` for the layout and
-  `publish_save` with `type=json` for the skins. When no default skin is set, it sets `dash` as the default.
+- The editor has three built-in layouts: `dash`, `minimal` and `empty`. The layout `empty` has no tiles; it has the
+  same canvas as `dash`.
+- The editor has two built-in skins: `dash` (default) and `minimal`.
+- When it connects and a built-in file is missing, the editor creates it: `layout_save` for each missing layout
+  and `publish_save` with `type=json` for each missing skin. When no default skin is set, it sets `dash` as the default.
 - The editor never changes, renames or deletes a built-in file afterwards. The HA App needs no special handling, and it
   does not refuse these names.
 - The viewer falls back to skin `dash` when `skins/_default.json` is missing.
