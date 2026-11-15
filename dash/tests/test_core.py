@@ -106,3 +106,9 @@ class EndpointTests(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ConfigTests(unittest.TestCase):
+    def test_websocket_path_matches_home_assistant(self):
+        # Home Assistant's websocket is at /api/websocket below the Supervisor's core proxy.
+        self.assertEqual(main.HA_WS_URL, "http://supervisor/core/api/websocket")

@@ -1,12 +1,11 @@
 name: DASH
-version: "0.1.3"
+version: "0.1.4"
 slug: dash
 description: Dashboards for screens, with live updates from Home Assistant
 arch:
   - amd64
   - aarch64
   - armv7
-init: false
 startup: application
 boot: auto
 ingress: true
