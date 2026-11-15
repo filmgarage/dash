@@ -278,6 +278,8 @@ def add_routes(app):
     router.add_get("/", index)
     router.add_get("/status", status_page)
     router.add_get("/viewer", viewer_page)
+    # Static assets of the editor (icon set, sample images). Relative URLs such as assets/mdi-icons.txt resolve here.
+    router.add_static("/assets", UI_DIR / "assets", show_index=False)
     router.add_get("/api/published_layout", published_layout)
     router.add_get("/api/status", status)
     router.add_get("/api/entities", entities)

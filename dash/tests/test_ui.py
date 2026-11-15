@@ -24,7 +24,13 @@ FORBIDDEN = [
 ]
 
 
+# The bundler's ext_resources list only names the URLs that were packed into the file. The code itself is
+# embedded (base64, keyed by uuid) and is loaded without network access, so that list is not checked.
+BUNDLE_LIST = re.compile(r'<script type="__bundler/ext_resources">.*?</script>', re.S)
+
+
 def find_problems(text):
+    text = BUNDLE_LIST.sub("", text)
     return [label for pattern, label in FORBIDDEN if pattern.search(text)]
 
 

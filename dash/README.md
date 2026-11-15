@@ -171,8 +171,8 @@ Everything is in the HA App's data folder, so it is kept across updates and incl
 
 ## Known limits
 
-- The editor's front end is one file, `app/ui/index.html`, written by the designer and checked by `tests/test_ui.py`.
-  The file included here is a placeholder until the designer's file replaces it.
+- The editor's front end is one file, `app/ui/index.html`, checked by `tests/test_ui.py`. Its icon set is
+  `app/ui/assets/mdi-icons.txt`, served under `assets/`. The viewer is `app/ui/viewer.html`, checked by `tests/test_viewer.py`.
 - The status page (`app/ui/status.html`) lists the monitored entities and the layouts that use them. It stays available
   at `status` in the HA App's panel.
 - Entities are monitored for the screens only after publishing. A layout that is only drafted does not show live

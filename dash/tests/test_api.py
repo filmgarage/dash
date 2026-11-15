@@ -180,6 +180,11 @@ class ApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((await resp.json())["layout"]["title"], "Morning")
         self.assertEqual((await self.editor.get("/api/published_layout?path=kitchen/morning")).status, 403)
 
+    async def test_editor_assets_through_ingress_only(self):
+        resp = await self.editor.get("/assets/mdi-icons.txt", headers=INGRESS)
+        self.assertEqual(resp.status, 200)
+        self.assertEqual((await self.editor.get("/assets/mdi-icons.txt")).status, 403)
+
     async def test_viewer_cannot_be_published_by_the_editor(self):
         resp = await self.editor.post("/api/publish_save?path=viewer",
                                       json={"html": "<html></html>"}, headers=INGRESS)
