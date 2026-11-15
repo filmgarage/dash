@@ -139,6 +139,12 @@ again updates them. The screen reads the layout once when it starts, then receiv
 websocket `ws://HA_IP:8092/ws?token=…`. A wrong token closes the socket with code `4401`. The viewer shows only
 the entities of its layout.
 
+## Status page
+
+The status page lists the entities that the HA App monitors, the layouts that use each one, and any entity that is
+missing from Home Assistant. Open **DASH** in the sidebar and add `status` to the end of the address in your browser.
+The page is only reachable through Home Assistant's login, not on port 8092.
+
 ## Files on disk
 
 | Location | Contents |
@@ -165,8 +171,10 @@ Everything is in the HA App's data folder, so it is kept across updates and incl
 
 ## Known limits
 
-- The editor's front end is delivered separately; this HA App serves it from `app/ui/`. The file included here is a
-  status page.
+- The editor's front end is one file, `app/ui/index.html`, written by the designer and checked by `tests/test_ui.py`.
+  The file included here is a placeholder until the designer's file replaces it.
+- The status page (`app/ui/status.html`) lists the monitored entities and the layouts that use them. It stays available
+  at `status` in the HA App's panel.
 - Entities are monitored for the screens only after publishing. A layout that is only drafted does not show live
   values anywhere.
 - The area of an entity is not available.

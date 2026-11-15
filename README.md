@@ -14,6 +14,7 @@ screen never needs a login menu.
 | `repository.yaml` | Makes this repository visible as an HA App repository in Home Assistant. |
 | `dash/` | The DASH HA App. See [dash/README.md](dash/README.md) for setup and screen URLs. |
 | `docs/CONTRACT.md` | The contract between the editor front end and the HA App's API. |
+| `dash/app/ui/status.html` | The status page: monitored entities and their layouts. See [Status page](#status-page). |
 
 ## Requirements
 
@@ -31,6 +32,12 @@ screen never needs a login menu.
 6. Start the HA App and open **DASH** in the sidebar.
 
 To update, open the HA App's page and install the new version when Home Assistant offers it.
+
+## Status page
+
+The status page lists the entities that DASH monitors, the layouts that use each one, and any entity that is
+missing from Home Assistant. Open **DASH** in the sidebar and add `status` to the end of the address in your browser.
+The page is only reachable through Home Assistant's login, not on port 8092.
 
 ## Safety
 

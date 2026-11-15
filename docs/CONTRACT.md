@@ -202,6 +202,17 @@ The viewer is served on the same origin as the API (`http://<host>:8092`). The b
 headers, and **8.2 sends none**. A web page on another origin, open in a browser on the network, cannot read the
 responses. Scripts and tools that call the API directly still need the token (section 11).
 
+**Rules for the editor (designer):**
+
+- The editor calls only the editor API (`api/...`) on its own Ingress address. It never calls port `8092` directly,
+  not with `fetch`, `XMLHttpRequest`, a WebSocket or an image URL. Use `api/imagedata`, `api/file` and `api/service`
+  instead of the screen endpoints.
+- If Home Assistant is opened over `https://`, the browser blocks any `http://<host>:8092` request from the editor
+  as mixed content. The rule above avoids this problem.
+- A published page or the viewer may be shown in an `<iframe>` in the editor, using the URL from section 3.1. The
+  editor cannot read the content of that frame.
+- The editor never uses a read token for its own calls. The token is shown only in the screen URL the editor builds.
+
 ## 5. Monitored entities (automatic selection)
 
 - **Monitored set** = all entities used by the **published version** of each layout that has a published page.

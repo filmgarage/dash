@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>DASH</title>
+  <style>
+    :root {
+      --bg: #f5f5f4; --fg: #1c1c1a; --muted: #6b6b66; --line: #d9d9d4; --card: #ffffff;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root:not([data-theme="light"]) { --bg: #161615; --fg: #ecece8; --muted: #9a9a93; --line: #34342f; --card: #1f1f1d; }
+    }
+    :root[data-theme="dark"] { --bg: #161615; --fg: #ecece8; --muted: #9a9a93; --line: #34342f; --card: #1f1f1d; }
+    body { margin: 0; padding: 16px; background: var(--bg); color: var(--fg);
+           font: 15px/1.4 system-ui, sans-serif; }
+    h1 { font-size: 20px; margin: 0 0 12px; }
+    h2 { font-size: 16px; margin: 20px 0 8px; }
+    section { background: var(--card); border: 1px solid var(--line); border-radius: 8px;
+              padding: 12px; margin-bottom: 12px; overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { text-align: left; padding: 6px 4px; border-bottom: 1px solid var(--line); }
+    th { color: var(--muted); font-weight: 600; }
+    .muted { color: var(--muted); }
+    .missing { color: #b45309; }
+  </style>
+</head>
+<body>
+  <h1>DASH</h1>
+
+  <section>
+    <div id="status" class="muted">Loading status…</div>
+  </section>
+
+  <h2>Monitored entities</h2>
+  <section>
+    <table>
+      <thead><tr><th>Entity</th><th>Used by layouts</th></tr></thead>
+      <tbody id="active"></tbody>
+    </table>
+  </section>
+
+  <h2>Published pages</h2>
+  <section>
+    <table>
+      <thead><tr><th>Type</th><th>Path</th></tr></thead>
+      <tbody id="pages"></tbody>
+    </table>
+  </section>
+
+  <script>
+    // Relative URLs: Home Assistant Ingress serves this page under a prefix.
+    const text = (value) => {
+      const span = document.createElement("span");
+      span.textContent = value;
+      return span;
+    };
+
+    async function getJson(path) {
+      const response = await fetch(path);
+      if (!response.ok) throw new Error(`${path}: ${response.status}`);
+      return response.json();
+    }
+
+    function fill(id, rows) {
+      const body = document.getElementById(id);
+      body.replaceChildren(...rows);
+    }
+
+    function row(...cells) {
+      const tr = document.createElement("tr");
+      for (const cell of cells) {
+        const td = document.createElement("td");
+        td.append(cell);
+        tr.append(td);
+      }
+      return tr;
+    }
+
+    async function load() {
+      try {
+        const status = await getJson("api/status");
+        document.getElementById("status").textContent =
+          `Version ${status.version} · Home Assistant ${status.ha_connected ? "connected" : "not connected"} · ` +
+          `${status.active_entities} monitored entities · screen token ${status.screen_token_set ? "set" : "not set"}`;
+
+        const active = await getJson("api/active");
+        fill("active", active.active.map((item) => row(
+          text(item.entity_id + (item.missing ? " (not found)" : "")),
+          text(item.layouts.join(", ")),
+        )));
+
+        const pages = await getJson("api/publish_list");
+        fill("pages", pages.pages.map((page) => row(text(page.type), text(page.path))));
+      } catch (error) {
+        document.getElementById("status").textContent = `Could not load: ${error.message}`;
+      }
+    }
+
+    load();
+  </script>
+</body>
+</html>

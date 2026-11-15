@@ -14,6 +14,11 @@ async def index(request):
 
 
 @handle_errors
+async def status_page(request):
+    return web.FileResponse(UI_DIR / "status.html")
+
+
+@handle_errors
 async def status(request):
     app = request.app
     return web.json_response({
@@ -258,6 +263,7 @@ async def active(request):
 def add_routes(app):
     router = app.router
     router.add_get("/", index)
+    router.add_get("/status", status_page)
     router.add_get("/api/status", status)
     router.add_get("/api/entities", entities)
     router.add_get("/api/states", states)

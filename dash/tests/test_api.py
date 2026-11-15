@@ -155,6 +155,13 @@ class ApiTests(unittest.IsolatedAsyncioTestCase):
         resp = await self.screen.get(f"/api/layouts?token={TOKEN}")
         self.assertEqual(resp.status, 404)
 
+    async def test_status_page_only_through_ingress(self):
+        resp = await self.editor.get("/status", headers=INGRESS)
+        self.assertEqual(resp.status, 200)
+        self.assertIn("text/html", resp.headers["Content-Type"])
+        self.assertEqual((await self.editor.get("/status")).status, 403)
+        self.assertEqual((await self.screen.get("/status")).status, 404)
+
     async def test_screen_sends_no_cors_headers(self):
         resp = await self.screen.get(f"/states?token={TOKEN}")
         self.assertNotIn("Access-Control-Allow-Origin", resp.headers)
