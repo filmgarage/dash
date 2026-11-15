@@ -17,15 +17,27 @@ from aiohttp import ClientSession, WSMsgType, web
 from ha_bridge import HaBridge, public_view
 
 log = logging.getLogger("dash")
-APP_VERSION = "0.1.4"
+APP_VERSION = "0.1.5"
 
 APP_DIR = Path(__file__).resolve().parent
 DATA_DIR = Path(os.environ.get("DATA_DIR", "/data"))
 OPTIONS_PATH = Path(os.environ.get("OPTIONS_PATH", "/data/options.json"))
 SELECTION_PATH = DATA_DIR / "selection.json"
-SUPERVISOR_URL = os.environ.get("SUPERVISOR_URL", "http://supervisor")
+S6_ENV_DIR = "/run/s6/container_environment"
+
+
+def s6_env(name):
+    """Read a variable from the s6-overlay container environment store (empty if absent)."""
+    try:
+        with open(os.path.join(S6_ENV_DIR, name), encoding="utf-8") as f:
+            return f.read().strip()
+    except OSError:
+        return ""
+
+
+SUPERVISOR_URL = os.environ.get("SUPERVISOR_URL") or s6_env("SUPERVISOR_URL") or "http://supervisor"
 HA_WS_URL = os.environ.get("HA_WS_URL", "http://supervisor/core/api/websocket")  # same path AppDaemon uses
-SUPERVISOR_TOKEN = os.environ.get("SUPERVISOR_TOKEN", "")
+SUPERVISOR_TOKEN = os.environ.get("SUPERVISOR_TOKEN") or s6_env("SUPERVISOR_TOKEN")
 UI_PORT = int(os.environ.get("UI_PORT", "8099"))
 SCREEN_PORT = int(os.environ.get("SCREEN_PORT", "8092"))
 
@@ -285,6 +297,11 @@ async def main():
     log.info("Supervisor environment variables present: %s",
              sorted(k for k in os.environ if "SUPERVISOR" in k or k.startswith("HASS")) or "none")
     log.debug("All environment variable names: %s", sorted(os.environ))
+    try:
+        log.debug("s6 container environment names: %s", sorted(os.listdir(S6_ENV_DIR)))
+    except OSError:
+        log.debug("s6 container environment store not found")
+    log.info("SUPERVISOR_TOKEN available: %s", bool(SUPERVISOR_TOKEN))
     if not SUPERVISOR_TOKEN:
         log.error("SUPERVISOR_TOKEN is missing. Check that the add-on runs version %s and that "
                   "homeassistant_api: true is in its config.yaml; then rebuild the add-on", APP_VERSION)
