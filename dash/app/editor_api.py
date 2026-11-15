@@ -2,15 +2,34 @@
 from aiohttp import web
 
 from errors import ApiError
+from network import resolve_screen_host, save_saved, valid_ipv4
 from settings import APP_VERSION, PUBLISH_URL, SCREEN_PORT, UI_DIR
 from store import checked, parse_path
-from web_common import (ENTITY_ATTRIBUTE_KEYS, SERVICE_NAME_RE, handle_errors, is_allowed,
+from web_common import (ENTITY_ATTRIBUTE_KEYS, SERVICE_NAME_RE, handle_errors, is_allowed, json_body,
                         json_body, picture_response, plain_state, service_data)
 
 
 @handle_errors
 async def index(request):
     return web.FileResponse(UI_DIR / "index.html")
+
+
+def screen_address(app):
+    host, source = resolve_screen_host(app["options"], app.get("saved") or {}, app.get("detected_ip"))
+    return {"screen_address_mode": app["options"]["screen_address_mode"], "screen_host": host,
+            "screen_host_source": source}
+
+
+@handle_errors
+async def save_screen_ip(request):
+    body = await json_body(request)
+    ip = valid_ipv4(body.get("screen_ip"))
+    if not ip:
+        raise ApiError("screen_ip must be an IPv4 address such as 192.168.1.10", 400)
+    app = request.app
+    app["saved"]["screen_ip"] = ip  # the dict is shared with the state; the app itself is not changed
+    save_saved(app["settings_path"], app["saved"])
+    return web.json_response(screen_address(app))
 
 
 @handle_errors
@@ -44,6 +63,7 @@ async def status(request):
         "active_entities": len(app["active"].entities),
         "allowed_domains": sorted(app["options"]["allow_domains"] - app["options"]["exclude_domains"]),
         "excluded_domains": sorted(app["options"]["exclude_domains"]),
+        **screen_address(app),
         "read_token": app["options"]["read_token"],
         "screen_port": SCREEN_PORT,
         "publish_url_prefix": PUBLISH_URL + "/",
@@ -291,6 +311,7 @@ def add_routes(app):
     router.add_get("/", index)
     router.add_get("/status", status_page)
     router.add_get("/viewer", viewer_page)
+    router.add_post("/api/settings", save_screen_ip)
     router.add_get("/favicon.png", favicon)
     # Static assets of the editor (icon set, sample images). Relative URLs such as assets/mdi-icons.txt resolve here.
     router.add_static("/assets", UI_DIR / "assets", show_index=False)

@@ -10,10 +10,12 @@ import screen_api
 from active import ActiveSet
 from ha import Supervisor
 from ha_bridge import HaBridge
+from forecasts import Forecasts
 from hub import Hub
-from settings import (ACTIVE_PATH, APP_VERSION, DATA_DIR, HA_WS_URL, LAYOUT_DIR, PUBLISH_DIR,
+from settings import (ACTIVE_PATH, APP_VERSION, DATA_DIR, HA_WS_URL, LAYOUT_DIR, PUBLISH_DIR, SETTINGS_PATH,
                       PUBLISH_URL, PUBLISHED_DIR, S6_ENV_DIR, SCREEN_PORT, SUPERVISOR_TOKEN,
                       SUPERVISOR_URL, UI_PORT, load_options, log_level)
+from network import detect_lan_ip, load_saved
 from store import Store
 from web_common import build_app, ingress_only, is_allowed
 
@@ -52,10 +54,18 @@ async def main():
             active.remove_page(page)
 
     session = ClientSession()
+    detected_ip = await detect_lan_ip(session, SUPERVISOR_URL, SUPERVISOR_TOKEN)
     ha = Supervisor(SUPERVISOR_URL, SUPERVISOR_TOKEN, session)
     bridge = HaBridge(HA_WS_URL, SUPERVISOR_TOKEN, active)
     hub = Hub(active, bridge)
-    bridge.on_state = hub.broadcast
+    forecasts = Forecasts(ha, bridge.states, active, hub.broadcast)
+
+    async def on_bridge_state(entity_id, view):
+        await hub.broadcast(entity_id, view)
+        forecasts.schedule(entity_id)
+
+    bridge.on_state = on_bridge_state
+    asyncio.ensure_future(forecasts.run())
 
     def on_active_changed(added, removed):
         bridge.active_changed()
@@ -65,7 +75,8 @@ async def main():
     active.listeners.append(on_active_changed)
 
     state = {"options": options, "store": store, "active": active, "bridge": bridge,
-             "hub": hub, "ha": ha, "images": {}}
+             "hub": hub, "ha": ha, "images": {}, "detected_ip": detected_ip,
+             "settings_path": SETTINGS_PATH, "saved": load_saved(SETTINGS_PATH)}
     editor = build_app(editor_api.add_routes, state, [ingress_only])
     screens = build_app(screen_api.add_routes, state)
     for app, port in ((editor, UI_PORT), (screens, SCREEN_PORT)):

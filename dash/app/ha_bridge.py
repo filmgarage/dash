@@ -8,7 +8,12 @@ log = logging.getLogger("dash.bridge")
 
 VIEW_ATTRIBUTES = ["brightness", "brightness_pct", "min", "max", "options", "hvac_modes", "min_temp", "max_temp",
                    "target_temp_step", "supported_color_modes", "effect_list", "percentage",
-                   "current_position", "temperature", "current_temperature", "hvac_action"]
+                   "current_position", "temperature", "current_temperature", "hvac_action",
+                   "target_temp_low", "target_temp_high", "preset_mode", "preset_modes", "temperature_unit",
+                   "humidity", "wind_speed", "wind_speed_unit", "precipitation_unit",
+                   "forecast_daily", "forecast_hourly"]
+# Domains whose unit is the temperature unit (contract 12.1).
+TEMPERATURE_DOMAINS = ("climate", "weather")
 
 
 def apply_event(states, event):
@@ -39,10 +44,13 @@ def public_view(entity_id, st):
     if st is None:
         return None
     attrs = st.get("a") or {}
+    unit = attrs.get("unit_of_measurement") or ""
+    if not unit and entity_id.split(".", 1)[0] in TEMPERATURE_DOMAINS:
+        unit = attrs.get("temperature_unit") or ""
     return {
         "state": st.get("s"),
         "name": attrs.get("friendly_name", entity_id),
-        "unit": attrs.get("unit_of_measurement", "") or "",
+        "unit": unit,
         "icon": attrs.get("icon", "") or "",
         "device_class": attrs.get("device_class", "") or "",
         "last_changed": int((st.get("lu") or 0) * 1000),

@@ -43,6 +43,17 @@ class Supervisor:
             if r.status >= 300:
                 raise ApiError(f"Home Assistant answered {r.status}", 502)
 
+    async def forecast(self, entity_id, kind):
+        """Calls weather.get_forecasts and returns the list for the entity (kind: daily or hourly)."""
+        url = f"{self.base}/api/services/weather/get_forecasts?return_response"
+        async with self.session.post(url, json={"entity_id": entity_id, "type": kind},
+                                     headers=self._headers(), timeout=TIMEOUT) as r:
+            if r.status >= 300:
+                raise ApiError(f"Home Assistant answered {r.status}", 502)
+            data = await r.json()
+        answer = (data.get("service_response") or {}).get(entity_id) or {}
+        return answer.get("forecast") or []
+
     async def picture(self, entity_picture):
         url = entity_picture if entity_picture.startswith("http") else self.base + entity_picture
         async with self.session.get(url, headers=self._headers(), timeout=TIMEOUT) as r:

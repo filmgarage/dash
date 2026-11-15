@@ -1,4 +1,4 @@
-# DASH HA App (v0.5.0)
+# DASH HA App (v0.7.0)
 
 DASH is a Home Assistant app for simple, light web dashboards on screens such as a Fully Kiosk photo frame or a
 wall tablet. You design a layout in the DASH editor, publish it, and the screen shows it with live values from
@@ -100,6 +100,8 @@ Test it with non-critical devices first.
 |---|---|---|
 | `read_token` | empty | Token for screens. Required before any screen can load data. |
 | `log_level` | `info` | `debug`, `info`, `warning` or `error`. |
+| `screen_address_mode` | `ip` | `ip`: screens use the LAN address of Home Assistant. `url`: screens use the address the editor was opened with, such as a DNS name. |
+| `screen_ip` | empty | The LAN address for screens. Empty means the HA App detects it, or the designer asks for it the first time. |
 | `allow_domains` | empty (built-in list) | Domains the HA App may use. An empty list means the built-in list. |
 | `allow_entities` | empty | Single entities allowed in addition to the domains. |
 | `exclude_domains` | `lock`, `alarm_control_panel` | Domains never used, even if allowed above. |
@@ -125,6 +127,9 @@ only for a screen in a place where everyone who can reach port 8092 may open tha
 Changes take effect after the HA App restarts. A missing option uses its default; an empty list excludes nothing.
 
 Create the read token with a password generator and use a value that you do not use anywhere else.
+
+The HA App reads the network address of the Home Assistant host from the Supervisor (`hassio_api`). It uses that
+only to build screen URLs; it changes no network setting.
 
 ## Setting up a screen
 

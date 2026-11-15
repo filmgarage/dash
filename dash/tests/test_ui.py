@@ -5,15 +5,19 @@ import unittest
 UI_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "ui", "index.html")
 
 # The editor runs through Ingress (contract 4.2 and 8.2). It must not:
-# - call the screen port, or hard-code it,
-# - use absolute paths, external hosts or the old Home Assistant www path,
-# - keep AppDaemon routes, in the editor or in code it exports,
-# - open a websocket or XHR of its own, or embed a read token in its code.
+# - request anything from the screen port or from another origin (fetch, XHR, WebSocket, EventSource, img src),
+# - hard-code the screen port (the port comes from api/status as screen_port),
+# - use absolute paths, external CDNs, the old Home Assistant www path or AppDaemon routes,
+# - keep an iframe, or embed a read token in its code.
+# A plain link (<a href> or a string shown to the user) to a published page is allowed: it is a navigation
+# to a new tab, not a request made by the editor (contract 4.2).
+REQUEST_CALL = r"""(?:fetch|XMLHttpRequest|WebSocket|EventSource|\.open)\s*\(\s*[^)]{0,200}"""
 FORBIDDEN = [
-    (re.compile(r"8092"), "port 8092 (the screen server)"),
-    (re.compile(r"https?://|wss?://"), "absolute or external URL"),
+    (re.compile(r"8092"), "hard-coded port 8092 (use screen_port from api/status)"),
+    (re.compile(REQUEST_CALL + r"""https?://|wss?://"""), "request to an absolute or external URL"),
+    (re.compile(r"""src\s*=\s*["'`]https?://"""), "image or script from an absolute URL"),
     (re.compile(r"unpkg|jsdelivr|cdnjs|googleapis|gstatic"), "external CDN or font host"),
-    (re.compile(r"""(?:fetch|src|href|action)\s*[=(]\s*["'`]/"""), "absolute path in a request"),
+    (re.compile(r"""(?:fetch|src|action)\s*[=(]\s*["'`]/"""), "absolute path in a request"),
     (re.compile(r"""["'`]/(?:api|local|dash)/"""), "absolute API, /local/ or /dash/ path"),
     (re.compile(r"/local/"), "Home Assistant www path"),
     (re.compile(r"appdaemon", re.IGNORECASE), "AppDaemon route or code"),
@@ -41,7 +45,10 @@ class EditorUiTests(unittest.TestCase):
         self.assertEqual(find_problems(text), [], "editor page breaks contract 4.2 / 8.2")
 
     def test_rules_catch_known_violations(self):
-        self.assertIn("port 8092 (the screen server)", find_problems("const p = 8092;"))
+        self.assertIn("hard-coded port 8092 (use screen_port from api/status)", find_problems("const p = 8092;"))
+        self.assertIn("request to an absolute or external URL", find_problems('fetch("http://192.168.1.5:8092/x")'))
+        self.assertEqual([], find_problems('const u = "http://" + host + ":" + port;'))
+        self.assertEqual([], find_problems('<a href="http://192.168.1.5:9000/dash/x.html" target="_blank">x</a>'))
         self.assertIn("AppDaemon route or code", find_problems('const BASE = "/api/appdaemon/";'))
         self.assertIn("external CDN or font host", find_problems('<script src="https://unpkg.com/x.js">'))
 

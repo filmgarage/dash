@@ -1,4 +1,5 @@
 import base64
+import json
 import os
 import sys
 import tempfile
@@ -70,11 +71,13 @@ class ApiTests(unittest.IsolatedAsyncioTestCase):
         state = {
             "options": {"read_token": TOKEN, "log_level": "info",
                         "allow_domains": {"light", "sensor", "image"},
+                        "screen_address_mode": "ip", "screen_ip": "",
                         "allow_entities": set(), "exclude_domains": {"lock", "alarm_control_panel"},
                         "exclude_entities": set(),
                         "services": {"toggle", "turn_on"}, "read_services": {"toggle"}},
             "store": self.store, "active": self.active, "bridge": self.bridge,
-            "hub": self.hub, "ha": self.ha, "images": {},
+            "hub": self.hub, "ha": self.ha, "images": {}, "saved": {}, "detected_ip": "192.168.69.248",
+            "settings_path": os.path.join(self.tmp.name, "settings.json"),
         }
         self.editor = TestClient(TestServer(build_app(editor_api.add_routes, state, [ingress_only])))
         self.screen = TestClient(TestServer(build_app(screen_api.add_routes, state)))
@@ -93,7 +96,7 @@ class ApiTests(unittest.IsolatedAsyncioTestCase):
     async def test_status_through_ingress(self):
         resp = await self.editor.get("/api/status", headers=INGRESS)
         self.assertEqual(resp.status, 200)
-        self.assertEqual((await resp.json())["version"], "0.5.0")
+        self.assertEqual((await resp.json())["version"], "0.7.0")
 
     async def test_publishing_adds_and_unpublishing_removes_entities(self):
         resp = await self.editor.post("/api/layout_save?path=kitchen/morning", json=LAYOUT, headers=INGRESS)
@@ -207,6 +210,18 @@ class ApiTests(unittest.IsolatedAsyncioTestCase):
     async def test_favicon_on_both_servers(self):
         self.assertEqual((await self.screen.get("/dash/favicon.png")).status, 200)
         self.assertEqual((await self.editor.get("/favicon.png", headers=INGRESS)).status, 200)
+
+    async def test_status_gives_the_screen_address_and_settings_save_it(self):
+        resp = await self.editor.get("/api/status", headers=INGRESS)
+        body = await resp.json()
+        self.assertEqual(body["screen_host"], "192.168.69.248")
+        self.assertEqual(body["screen_host_source"], "detected")
+        bad = await self.editor.post("/api/settings", json={"screen_ip": "not an ip"}, headers=INGRESS)
+        self.assertEqual(bad.status, 400)
+        ok = await self.editor.post("/api/settings", json={"screen_ip": "10.0.0.9"}, headers=INGRESS)
+        self.assertEqual((await ok.json())["screen_host"], "10.0.0.9")
+        with open(os.path.join(self.tmp.name, "settings.json"), encoding="utf-8") as f:
+            self.assertEqual(json.load(f), {"screen_ip": "10.0.0.9"})
 
     async def test_viewer_cannot_be_published_by_the_editor(self):
         resp = await self.editor.post("/api/publish_save?path=viewer",

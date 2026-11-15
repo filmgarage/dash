@@ -4,11 +4,12 @@ import logging
 import os
 from pathlib import Path
 
-APP_VERSION = "0.5.0"
+APP_VERSION = "0.7.0"
 
 DATA_DIR = Path(os.environ.get("DATA_DIR", "/data"))
 OPTIONS_PATH = Path(os.environ.get("OPTIONS_PATH", str(DATA_DIR / "options.json")))
 LAYOUT_DIR = Path(os.environ.get("LAYOUT_DIR", str(DATA_DIR / "layouts")))
+SETTINGS_PATH = DATA_DIR / "settings.json"
 ACTIVE_PATH = Path(os.environ.get("ACTIVE_PATH", str(DATA_DIR / "active.json")))
 PUBLISHED_DIR = Path(os.environ.get("PUBLISHED_DIR", str(DATA_DIR / "published")))
 PUBLISH_DIR = Path(os.environ.get("PUBLISH_DIR", str(DATA_DIR / "www" / "dash")))
@@ -83,6 +84,8 @@ def load_options(path=OPTIONS_PATH):
         "allow_entities": names("allow_entities"),
         "exclude_domains": excluded("exclude_domains", DEFAULT_EXCLUDE_DOMAINS),
         "exclude_entities": names("exclude_entities"),
+        "screen_address_mode": str(raw.get("screen_address_mode") or "ip"),
+        "screen_ip": str(raw.get("screen_ip") or "").strip(),
         "services": services,
         "read_services": read_services,
     }

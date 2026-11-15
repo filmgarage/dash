@@ -12,7 +12,7 @@ Home Assistant through Ingress and talks only to the HA App's editor API. The fu
   with relative paths (`assets/logo.png`), never with absolute paths.
 - **The whole file** on every delivery. Not a diff, not a fragment.
 - **First line:** a comment with your version and the contract version, for example
-  `<!-- DASH designer 1.0, contract 8.2 -->`.
+  `<!-- DASH designer 1.0, contract 8.5 -->`.
 - **Language:** English for all text in the file, including comments. Remove old comments and debug code before you
   deliver.
 
@@ -20,8 +20,9 @@ Home Assistant through Ingress and talks only to the HA App's editor API. The fu
 
 - Every request goes to a relative path under `api/`, for example `api/layouts`. Ingress adds the prefix; do not
   build it yourself.
-- Read the URL prefix and the screen port from `api/status` (`publish_url_prefix`, `screen_port`). Build screen URLs
-  from the host name the editor is loaded from, the screen port and the prefix. Do not hard-code the port.
+- Read the URL prefix and the screen port from `api/status` (`publish_url_prefix`, `screen_port`). Do not hard-code the port.
+- Screen URLs: with `screen_address_mode` `ip`, use `screen_host`. If it is `null`, ask the user for the LAN address the
+  first time, and save it with `POST api/settings`. With mode `url`, use the host name the editor was opened with.
 - Which domains the user may pick come from `api/status` (`allowed_domains`). Do not keep a fixed list of domains in the
   editor. The server refuses a layout with a refused entity when it is published.
 - The editor needs **no token** for its own calls. Its requests have no `token` parameter.
@@ -31,7 +32,8 @@ Home Assistant through Ingress and talks only to the HA App's editor API. The fu
 
 | Method | Path | Purpose |
 |---|---|---|
-| GET | `api/status` | version, prefix, screen port, read token, connection state |
+| GET | `api/status` | version, prefix, screen port, read token, screen address, connection state |
+| POST | `api/settings` | save the screen address when the server does not know it |
 | GET | `api/entities`, `api/states` | entities and their states for the editor |
 | GET | `api/service` | run an action for the editor preview |
 | GET | `api/layouts`, `api/layout_load` | list layouts, load a draft |
@@ -50,8 +52,11 @@ Anything else is not available to the editor.
 
 Each rule is checked by `tests/test_ui.py`. Run that test before you deliver.
 
-- **Port 8092** anywhere in the file. The editor never calls the screen server, not even to check it. Use `api/file`
+- **No request to port 8092.** The editor never calls the screen server, not even to check it. Use `api/file`
   and `api/imagedata` for previews.
+- **No hard-coded port.** Take `screen_port` from `api/status`. A fallback such as `|| 8092` is refused by the test.
+- **Links to published pages are allowed** (`<a href="http://<host>:<screen_port>/dash/..." target="_blank">`). A link
+  opens a new tab; it is not a request from the editor (contract 4.2).
 - **Absolute URLs and external hosts:** no `https://`, `http://`, `ws://`, no CDN (`unpkg`, `jsdelivr`, `cdnjs`) and no
   Google Fonts. React, icons and fonts must be part of the file or of `assets/`.
 - **Absolute paths** such as `/api/...`, `/local/...` or `/dash/...`. They break under Ingress and the `/local/` path is
@@ -70,8 +75,9 @@ absolute `/api/` paths, the read token, or the screen port as a fixed value.
 
 ## Icon in the browser tab
 
-- The editor page uses `<link rel="icon" href="favicon.png">`. The HA App serves `favicon.png` next to `index.html`.
-- Published pages on the screen server use `<link rel="icon" href="/dash/favicon.png">`.
+- The editor page uses `<link rel="icon" type="image/png" href="assets/favicon.png">`.
+- The viewer uses `<link rel="icon" href="favicon.png">`. On the screen server it resolves to `/dash/favicon.png`,
+  on Ingress to the editor's `favicon.png`.
 - The file is `app/ui/assets/favicon.png`. Replace it to change the icon.
 
 ## Previews
@@ -86,7 +92,7 @@ absolute `/api/` paths, the read token, or the screen port as a fixed value.
 - [ ] One file, `app/ui/index.html`, with the version comment on the first line.
 - [ ] All text in English, no old comments, no debug code.
 - [ ] Every request uses a relative `api/` path listed above.
-- [ ] No port 8092, no absolute URL, no external host, no CDN, no Google Fonts.
+- [ ] No request to port 8092, no hard-coded port, no absolute URL in a request, no external host, no CDN, no Google Fonts.
 - [ ] No AppDaemon code or path, in the editor or in exported code.
 - [ ] No WebSocket, EventSource or XHR; no token in editor requests; no token in exported code.
 - [ ] `python3 -m unittest discover -s tests -p "test_*.py"` passes in the `dash` folder.
