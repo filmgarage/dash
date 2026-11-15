@@ -1,4 +1,4 @@
-# DASH HA App (v0.4.0)
+# DASH HA App (v0.5.0)
 
 DASH is a Home Assistant app for simple, light web dashboards on screens such as a Fully Kiosk photo frame or a
 wall tablet. You design a layout in the DASH editor, publish it, and the screen shows it with live values from
@@ -100,12 +100,29 @@ Test it with non-critical devices first.
 |---|---|---|
 | `read_token` | empty | Token for screens. Required before any screen can load data. |
 | `log_level` | `info` | `debug`, `info`, `warning` or `error`. |
-| `allow_domains` | empty (built-in list) | Entity domains the HA App may read and control. |
+| `allow_domains` | empty (built-in list) | Domains the HA App may use. An empty list means the built-in list. |
+| `allow_entities` | empty | Single entities allowed in addition to the domains. |
+| `exclude_domains` | `lock`, `alarm_control_panel` | Domains never used, even if allowed above. |
+| `exclude_entities` | empty | Single entities never used. |
 | `services` | empty (built-in list) | Services the editor may call, for the preview in the editor. |
+| `allow_services` | empty | Services added to `services`. |
+| `exclude_services` | locks and alarm services | Services removed from `services`. |
 | `read_services` | empty (built-in list) | Services a screen may call. Keep this short. |
+| `allow_read_services` | empty | Services added to `read_services`. |
+| `exclude_read_services` | locks and alarm services | Services removed from `read_services`. |
 
-Leave the lists empty to use the built-in lists. Remove `lock` and `unlock` from `read_services` if the screen is in
-a shared place.
+Rules, in this order:
+
+1. An entity is allowed when its domain is in `allow_domains` or it is in `allow_entities`.
+2. An entity is refused when its domain is in `exclude_domains` or it is in `exclude_entities`. Exclusion always wins.
+3. A layout that uses a refused entity cannot be published. The editor shows which entity it is.
+4. A screen may call a service only if it is in `read_services` and not refused by `exclude_read_services`.
+
+Locks and alarm panels are excluded by default: a lock or alarm tile cannot be published, and no screen can unlock or
+disarm. To allow them, remove the domain from `exclude_domains` and the services from `exclude_read_services`. Do this
+only for a screen in a place where everyone who can reach port 8092 may open that lock or alarm.
+
+Changes take effect after the HA App restarts. A missing option uses its default; an empty list excludes nothing.
 
 Create the read token with a password generator and use a value that you do not use anywhere else.
 

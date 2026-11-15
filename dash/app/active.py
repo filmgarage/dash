@@ -7,8 +7,9 @@ log = logging.getLogger("dash.active")
 
 
 class ActiveSet:
-    def __init__(self, path):
+    def __init__(self, path, allowed=None):
         self.path = Path(path)
+        self.allowed = allowed or (lambda entity_id: True)  # entities the options allow
         self.pages = {}
         self.listeners = []  # callables(added, removed), called when the monitored set changes
         if self.path.exists():
@@ -32,7 +33,7 @@ class ActiveSet:
 
     def set_page(self, page, entities):
         before = self.entities
-        self.pages[page] = sorted(set(entities))
+        self.pages[page] = sorted(e for e in set(entities) if self.allowed(e))
         return self._commit(before)
 
     def remove_page(self, page):

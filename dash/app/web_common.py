@@ -73,7 +73,13 @@ def to_ms(iso):
 
 
 def is_allowed(options, entity_id):
-    return bool(ENTITY_RE.match(entity_id)) and entity_id.split(".", 1)[0] in options["allow_domains"]
+    """An entity is allowed when its domain or the entity itself is allowed, and it is not excluded."""
+    if not ENTITY_RE.match(entity_id):
+        return False
+    domain = entity_id.split(".", 1)[0]
+    if domain in options["exclude_domains"] or entity_id in options["exclude_entities"]:
+        return False
+    return domain in options["allow_domains"] or entity_id in options["allow_entities"]
 
 
 def plain_state(entity_id, state):

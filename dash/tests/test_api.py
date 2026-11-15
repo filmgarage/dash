@@ -70,6 +70,8 @@ class ApiTests(unittest.IsolatedAsyncioTestCase):
         state = {
             "options": {"read_token": TOKEN, "log_level": "info",
                         "allow_domains": {"light", "sensor", "image"},
+                        "allow_entities": set(), "exclude_domains": {"lock", "alarm_control_panel"},
+                        "exclude_entities": set(),
                         "services": {"toggle", "turn_on"}, "read_services": {"toggle"}},
             "store": self.store, "active": self.active, "bridge": self.bridge,
             "hub": self.hub, "ha": self.ha, "images": {},
@@ -91,7 +93,7 @@ class ApiTests(unittest.IsolatedAsyncioTestCase):
     async def test_status_through_ingress(self):
         resp = await self.editor.get("/api/status", headers=INGRESS)
         self.assertEqual(resp.status, 200)
-        self.assertEqual((await resp.json())["version"], "0.4.0")
+        self.assertEqual((await resp.json())["version"], "0.5.0")
 
     async def test_publishing_adds_and_unpublishing_removes_entities(self):
         resp = await self.editor.post("/api/layout_save?path=kitchen/morning", json=LAYOUT, headers=INGRESS)
@@ -184,6 +186,27 @@ class ApiTests(unittest.IsolatedAsyncioTestCase):
         resp = await self.editor.get("/assets/mdi-icons.txt", headers=INGRESS)
         self.assertEqual(resp.status, 200)
         self.assertEqual((await self.editor.get("/assets/mdi-icons.txt")).status, 403)
+
+    async def test_token_cannot_unlock_a_lock(self):
+        # Even with the token, an unlock on a lock is refused before Home Assistant is called.
+        resp = await self.screen.get(
+            f"/service?entity_id=lock.front_door&service=unlock&layout=entry/door&token={TOKEN}")
+        self.assertEqual(resp.status, 403)
+        self.assertEqual(self.ha.calls, [])
+
+    async def test_publishing_refuses_excluded_entities(self):
+        lock = {"title": "Door", "tiles": [
+            {"id": "t1", "type": "lock", "entity": "lock.front_door", "x": 0, "y": 0, "w": 2, "h": 2}]}
+        await self.editor.post("/api/layout_save?path=entry/door", json=lock, headers=INGRESS)
+        resp = await self.editor.post("/api/publish_save?path=entry/door",
+                                      json={"html": "<html></html>"}, headers=INGRESS)
+        self.assertEqual(resp.status, 400)
+        self.assertIn("lock.front_door", (await resp.json())["error"])
+        self.assertEqual(self.active.entities, set())
+
+    async def test_favicon_on_both_servers(self):
+        self.assertEqual((await self.screen.get("/dash/favicon.png")).status, 200)
+        self.assertEqual((await self.editor.get("/favicon.png", headers=INGRESS)).status, 200)
 
     async def test_viewer_cannot_be_published_by_the_editor(self):
         resp = await self.editor.post("/api/publish_save?path=viewer",

@@ -116,13 +116,17 @@ All paths are relative to the editor page. No token. Same parameters and respons
 ### 3.1 `api/status`
 
 ```json
-{"version": "0.4.0", "state": "running", "read_token": "<read token>", "screen_port": 8092,
- "publish_url_prefix": "/dash/", "ha_connected": true, "active_entities": 3}
+{"version": "0.5.0", "state": "running", "read_token": "<read token>", "screen_port": 8092,
+ "publish_url_prefix": "/dash/", "ha_connected": true, "active_entities": 3,
+ "allowed_domains": ["light", "sensor", "switch"], "excluded_domains": ["alarm_control_panel", "lock"]}
 ```
 
 - `read_token`: the read token from the HA App options, or `""` when none is set. The editor uses it to build viewer
   URLs. This is safe: Ingress only lets logged-in Home Assistant users reach `api/status`.
 - `screen_port`: the port of the screen server (section 4).
+- `allowed_domains`: the domains the HA App allows, minus the excluded ones. The designer must use this list to show
+  which entities can be picked. It must not keep its own list.
+- `excluded_domains`: the domains that are never used, even when allowed by `allow_domains`.
 - `publish_url_prefix`: where published files are served on the screen port. A screen URL is
   `http://<host>:<screen_port><publish_url_prefix><path>`, where `<host>` is the host name the editor is loaded from
   (`location.hostname`).
@@ -316,6 +320,15 @@ homeassistant_api: true       # Supervisor token for states and services
 - The HA App has no folder mapping. Everything it writes is in `/data`.
 - Published files are in `/data/www/dash/` and served on port 8092 at `/dash/`. Home Assistant's `www` folder is not used.
 - Port 8099 (the editor) is not exposed to the network. Only Ingress reaches it.
+
+### 7.2 Allow and exclude rules (version 0.5.0)
+
+- An entity is allowed when its domain is in `allow_domains` or it is in `allow_entities`, and it is not excluded.
+  Exclusion (`exclude_domains`, `exclude_entities`) always wins.
+- `publish_save` of an html page with a refused entity: `400 not allowed by the HA App options: <entity ids>`.
+- A screen may call a service only if it is in `read_services` and not in `exclude_read_services`. The editor preview
+  uses `services` and `exclude_services` in the same way.
+- By default `lock` and `alarm_control_panel` are excluded, with their services.
 
 ## 8. Errors
 

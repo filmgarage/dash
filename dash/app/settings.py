@@ -4,7 +4,7 @@ import logging
 import os
 from pathlib import Path
 
-APP_VERSION = "0.4.0"
+APP_VERSION = "0.5.0"
 
 DATA_DIR = Path(os.environ.get("DATA_DIR", "/data"))
 OPTIONS_PATH = Path(os.environ.get("OPTIONS_PATH", str(DATA_DIR / "options.json")))
@@ -26,6 +26,12 @@ DEFAULT_DOMAINS = [
     "lock", "button", "input_button", "select", "input_select",
     "number", "input_number", "climate", "media_player",
     "sensor", "binary_sensor", "weather", "image",
+]
+# Locks and alarm panels are excluded by default. Remove them from these lists to allow them.
+DEFAULT_EXCLUDE_DOMAINS = ["lock", "alarm_control_panel"]
+LOCK_ALARM_SERVICES = [
+    "lock", "unlock", "open", "alarm_arm_away", "alarm_arm_home", "alarm_arm_night",
+    "alarm_arm_vacation", "alarm_arm_custom_bypass", "alarm_disarm", "alarm_trigger",
 ]
 DEFAULT_SERVICES = [
     "toggle", "turn_on", "turn_off", "press",
@@ -58,12 +64,27 @@ def load_options(path=OPTIONS_PATH):
         raw = json.loads(Path(path).read_text(encoding="utf-8"))
     except (OSError, ValueError):
         raw = {}
+    def names(key):
+        return set(str(x) for x in (raw.get(key) or []))
+
+    def excluded(key, default):
+        # A missing key takes the default; an empty list excludes nothing.
+        value = raw.get(key)
+        return set(default) if value is None else set(str(x) for x in value)
+
+    services = (set(raw.get("services") or DEFAULT_SERVICES) | names("allow_services")) \
+        - excluded("exclude_services", LOCK_ALARM_SERVICES)
+    read_services = (set(raw.get("read_services") or DEFAULT_SERVICES) | names("allow_read_services")) \
+        - excluded("exclude_read_services", LOCK_ALARM_SERVICES)
     return {
         "read_token": str(raw.get("read_token") or ""),
         "log_level": str(raw.get("log_level") or "info"),
         "allow_domains": set(raw.get("allow_domains") or DEFAULT_DOMAINS),
-        "services": set(raw.get("services") or DEFAULT_SERVICES),
-        "read_services": set(raw.get("read_services") or DEFAULT_SERVICES),
+        "allow_entities": names("allow_entities"),
+        "exclude_domains": excluded("exclude_domains", DEFAULT_EXCLUDE_DOMAINS),
+        "exclude_entities": names("exclude_entities"),
+        "services": services,
+        "read_services": read_services,
     }
 
 

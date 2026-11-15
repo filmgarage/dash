@@ -1,7 +1,8 @@
 name: DASH
-version: "0.4.0"
+version: "0.5.0"
 slug: dash
 description: Lightweight Home Assistant dashboards
+stage: experimental
 arch:
   - amd64
   - aarch64
@@ -23,14 +24,57 @@ options:
   read_token: ""
   log_level: info
   allow_domains: []
+  allow_entities: []
+  exclude_domains:
+    - lock
+    - alarm_control_panel
+  exclude_entities: []
   services: []
+  allow_services: []
+  exclude_services:
+    - lock
+    - unlock
+    - open
+    - alarm_arm_away
+    - alarm_arm_home
+    - alarm_arm_night
+    - alarm_arm_vacation
+    - alarm_arm_custom_bypass
+    - alarm_disarm
+    - alarm_trigger
   read_services: []
+  allow_read_services: []
+  exclude_read_services:
+    - lock
+    - unlock
+    - open
+    - alarm_arm_away
+    - alarm_arm_home
+    - alarm_arm_night
+    - alarm_arm_vacation
+    - alarm_arm_custom_bypass
+    - alarm_disarm
+    - alarm_trigger
 schema:
   read_token: password
   log_level: list(debug|info|warning|error)
   allow_domains:
     - str
+  allow_entities:
+    - str
+  exclude_domains:
+    - str
+  exclude_entities:
+    - str
   services:
     - str
+  allow_services:
+    - str
+  exclude_services:
+    - str
   read_services:
+    - str
+  allow_read_services:
+    - str
+  exclude_read_services:
     - str

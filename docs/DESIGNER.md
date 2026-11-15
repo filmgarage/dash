@@ -22,6 +22,8 @@ Home Assistant through Ingress and talks only to the HA App's editor API. The fu
   build it yourself.
 - Read the URL prefix and the screen port from `api/status` (`publish_url_prefix`, `screen_port`). Build screen URLs
   from the host name the editor is loaded from, the screen port and the prefix. Do not hard-code the port.
+- Which domains the user may pick come from `api/status` (`allowed_domains`). Do not keep a fixed list of domains in the
+  editor. The server refuses a layout with a refused entity when it is published.
 - The editor needs **no token** for its own calls. Its requests have no `token` parameter.
 - The read token from `api/status` (`read_token`) is only used to build the screen URL that the user copies.
 
@@ -65,6 +67,12 @@ Each rule is checked by `tests/test_ui.py`. Run that test before you deliver.
 If the editor exports code (for example a script for a screen or a template), that code is part of the file and is
 checked too. Exported code must use relative paths and the same rules as above. It must not contain AppDaemon routes,
 absolute `/api/` paths, the read token, or the screen port as a fixed value.
+
+## Icon in the browser tab
+
+- The editor page uses `<link rel="icon" href="favicon.png">`. The HA App serves `favicon.png` next to `index.html`.
+- Published pages on the screen server use `<link rel="icon" href="/dash/favicon.png">`.
+- The file is `app/ui/assets/favicon.png`. Replace it to change the icon.
 
 ## Previews
 

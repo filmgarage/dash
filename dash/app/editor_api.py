@@ -24,6 +24,11 @@ async def viewer_page(request):
 
 
 @handle_errors
+async def favicon(request):
+    return web.FileResponse(UI_DIR / "assets" / "favicon.png")
+
+
+@handle_errors
 async def published_layout(request):
     parts = checked(parse_path(request.query.get("path")))
     return web.json_response({"layout": request.app["store"].load_published(parts)})
@@ -37,6 +42,8 @@ async def status(request):
         "state": "running",
         "ha_connected": app["bridge"].connected,
         "active_entities": len(app["active"].entities),
+        "allowed_domains": sorted(app["options"]["allow_domains"] - app["options"]["exclude_domains"]),
+        "excluded_domains": sorted(app["options"]["exclude_domains"]),
         "read_token": app["options"]["read_token"],
         "screen_port": SCREEN_PORT,
         "publish_url_prefix": PUBLISH_URL + "/",
@@ -178,6 +185,12 @@ async def publish_save(request):
 
     if parts == ["viewer"]:
         raise ApiError("the viewer is part of the HA App and is not published", 400)
+    if kind == "html" and store.has_layout(parts):
+        tiles = store.load_layout(parts).get("tiles") or []
+        refused = sorted({t["entity"] for t in tiles
+                          if isinstance(t, dict) and t.get("entity") and not is_allowed(app["options"], t["entity"])})
+        if refused:
+            raise ApiError("not allowed by the HA App options: " + ", ".join(refused), 400)
     html = body.get("html")
     if not isinstance(html, str):
         raise ApiError('no html in body (expected {"html": "..."})', 400)
@@ -278,6 +291,7 @@ def add_routes(app):
     router.add_get("/", index)
     router.add_get("/status", status_page)
     router.add_get("/viewer", viewer_page)
+    router.add_get("/favicon.png", favicon)
     # Static assets of the editor (icon set, sample images). Relative URLs such as assets/mdi-icons.txt resolve here.
     router.add_static("/assets", UI_DIR / "assets", show_index=False)
     router.add_get("/api/published_layout", published_layout)

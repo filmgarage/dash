@@ -122,12 +122,18 @@ async def viewer_page(request):
     return web.FileResponse(UI_DIR / "viewer.html")
 
 
+@handle_errors
+async def favicon(request):
+    return web.FileResponse(UI_DIR / "assets" / "favicon.png")
+
+
 def add_routes(app):
     store = app["store"]
     router = app.router
     # The viewer is part of the HA App. It is registered before the static route, so an old copy in
     # the publish folder is never served.
     router.add_get(store.publish_url + "/viewer.html", viewer_page)
+    router.add_get(store.publish_url + "/favicon.png", favicon)
     router.add_static(store.publish_url, store.publish_dir, show_index=False)
     router.add_get("/health", health)
     router.add_get("/states", states)

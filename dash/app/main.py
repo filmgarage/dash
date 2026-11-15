@@ -15,7 +15,7 @@ from settings import (ACTIVE_PATH, APP_VERSION, DATA_DIR, HA_WS_URL, LAYOUT_DIR,
                       PUBLISH_URL, PUBLISHED_DIR, S6_ENV_DIR, SCREEN_PORT, SUPERVISOR_TOKEN,
                       SUPERVISOR_URL, UI_PORT, load_options, log_level)
 from store import Store
-from web_common import build_app, ingress_only
+from web_common import build_app, ingress_only, is_allowed
 
 log = logging.getLogger("dash")
 
@@ -43,9 +43,12 @@ async def main():
     log_environment()
 
     store = Store(LAYOUT_DIR, PUBLISH_DIR, PUBLISH_URL, PUBLISHED_DIR)
-    active = ActiveSet(ACTIVE_PATH)
+    active = ActiveSet(ACTIVE_PATH, allowed=lambda entity_id: is_allowed(options, entity_id))
     for page in list(active.pages):
-        if not store.is_published(page.split("/")):
+        parts = page.split("/")
+        if store.is_published(parts):
+            active.set_page(page, store.published_entities(parts))  # applies the current options
+        else:
             active.remove_page(page)
 
     session = ClientSession()
