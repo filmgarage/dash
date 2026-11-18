@@ -96,7 +96,7 @@ class ApiTests(unittest.IsolatedAsyncioTestCase):
     async def test_status_through_ingress(self):
         resp = await self.editor.get("/api/status", headers=INGRESS)
         self.assertEqual(resp.status, 200)
-        self.assertEqual((await resp.json())["version"], "0.7.1")
+        self.assertEqual((await resp.json())["version"], "0.7.3")
 
     async def test_publishing_adds_and_unpublishing_removes_entities(self):
         resp = await self.editor.post("/api/layout_save?path=kitchen/morning", json=LAYOUT, headers=INGRESS)
@@ -281,3 +281,44 @@ class ApiTests(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+    async def test_image_endpoint_serves_binary_bytes_with_etag(self):
+        self.active.set_page("cameras", ["image.qr"])
+        resp = await self.screen.get(f"/image?entity=image.qr&token={TOKEN}")
+        self.assertEqual(resp.status, 200)
+        self.assertEqual(resp.headers["Content-Type"], "image/png")
+        self.assertEqual(await resp.read(), b"png-bytes")
+        self.assertTrue(resp.headers["ETag"].startswith('"'))
+        self.assertEqual(resp.headers["Cache-Control"], "no-cache")
+
+    async def test_image_endpoint_answers_304_for_the_same_etag(self):
+        self.active.set_page("cameras", ["image.qr"])
+        first = await self.screen.get(f"/image?entity=image.qr&token={TOKEN}")
+        etag = first.headers["ETag"]
+        again = await self.screen.get(f"/image?entity=image.qr&token={TOKEN}",
+                                      headers={"If-None-Match": etag})
+        self.assertEqual(again.status, 304)
+
+    async def test_image_endpoint_needs_the_token_and_an_active_entity(self):
+        self.active.set_page("cameras", ["image.qr"])
+        self.assertEqual((await self.screen.get("/image?entity=image.qr")).status, 401)
+        self.assertEqual((await self.screen.get(f"/image?entity=light.kitchen&token={TOKEN}")).status, 403)
+        self.assertEqual((await self.screen.get(f"/image?entity=image.other&token={TOKEN}")).status, 403)
+
+
+class UnreachableHaTests(unittest.TestCase):
+    def test_unreachable_home_assistant_is_a_502_without_traceback(self):
+        import asyncio as _asyncio
+        import aiohttp as _aiohttp
+        from web_common import handle_errors
+
+        @handle_errors
+        async def handler(request):
+            raise _aiohttp.ClientConnectionError("down")
+
+        with self.assertLogs("dash.api", level="WARNING") as logs:
+            for _ in range(3):
+                resp = _asyncio.run(handler(None))
+                self.assertEqual(resp.status, 502)
+        self.assertEqual(len(logs.records), 1)
+        self.assertNotIn("Traceback", logs.output[0])

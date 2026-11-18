@@ -1,4 +1,4 @@
-# DASH HA App (v0.7.1)
+# DASH HA App (v0.7.3)
 
 DASH is a Home Assistant app for simple, light web dashboards on screens such as a Fully Kiosk photo frame or a
 wall tablet. You design a layout in the DASH editor, publish it, and the screen shows it with live values from
@@ -30,59 +30,21 @@ you do not create a long-lived token. No restart of Home Assistant is needed.
 
 ## Safety
 
-This chapter explains what the HA App exposes, where, and how to keep it safe. Read it before you publish anything.
+Read the full guide in [docs/NETWORK-SECURITY.md](../docs/NETWORK-SECURITY.md) before you publish anything. The
+short version:
 
-### What is reachable, and from where
-
-| What | Where | What a visitor needs |
-|---|---|---|
-| Editor (drafts, publishing, read token) | Home Assistant sidebar (Ingress) | a logged-in Home Assistant user |
-| Published pages, viewer, skins, images under `/dash/` | port 8092, local network | nothing; they contain no data and no token |
-| Data: states, layouts, service calls, pictures, live updates | port 8092, local network | the read token |
-
-The editor is never on a network port of its own. The published pages are **not** served through Home Assistant's
-web server (`/local/`), so they are not exposed through Home Assistant's login page or through a reverse proxy in
-front of Home Assistant.
-
-### Keep port 8092 on your local network
-
-- Do not forward port 8092 on your router.
-- Do not add `/dash/` or port 8092 to a reverse proxy such as Nginx Proxy Manager.
-- Check your router and proxy settings after you install the HA App. The HA App cannot check this for you.
-
-### The read token
-
-- The read token gives access to the states of the published layouts and to the services in `read_services` on the
-  entities of those layouts. It cannot change layouts, publish pages or read the editor.
-- Use a long random value (at least 24 characters from a password generator) and do not reuse it anywhere else.
-- The token is in the screen URL. It is visible in the browser history and in the screen's settings.
-- To replace it, change `read_token` in the HA App options, then update the URL on every screen.
-- Replace the token at once if a screen is lost or sold, or if its URL was seen by someone who should not have it.
-
-### Limit what a screen may do
-
-- Keep `read_services` short. A screen only needs `toggle` and `press` for most dashboards.
-- Leave out `lock` and `unlock` if a screen stands in a shared place.
-- Keep `allow_domains` to the domains your dashboards use.
-
-### What the HA App does not protect
-
-- Anyone on your local network who can reach port 8092 can open the published pages and skins. They see layout
-  names, titles and labels that you wrote into them. Do not put private information in those.
-- The HTML of a published page is not checked. It runs in the browser of anyone who opens it on the local network.
-  Publish only content you trust.
-- Traffic on port 8092 is plain `http`. Use it only on a network you trust.
-- The HA App does not replace Home Assistant's own security. Keep Home Assistant behind a login, keep it up to date
-  and use strong passwords for its users.
-
-### Checklist
-
-- [ ] Port 8092 is not forwarded on the router.
-- [ ] No reverse proxy route points to `/dash/` or to port 8092.
-- [ ] The read token is long, random and not used elsewhere.
-- [ ] `read_services` contains only the services the screens need.
-- [ ] Home Assistant and the HA App are up to date.
-- [ ] Only trusted content is published.
+- The editor is only in the Home Assistant sidebar (Ingress). It has no port of its own.
+- The screens use port 8092 on your local network. Do not forward that port on your router, and do not add `/dash/`
+  or port 8092 to a reverse proxy.
+- The published pages, skins and images under `/dash/` need no token. They contain no data, but anyone on your
+  local network who can reach port 8092 can open them. Do not put private information in layout names, titles or labels.
+- The read token protects the data (states, pictures, service calls). Use a long random value and do not reuse it.
+  It is part of the screen URL, so treat that URL as a secret.
+- Keep `read_services` short. Leave out `lock`, `unlock` and the alarm services on shared screens.
+- A screen can start any script, button or scene it is allowed to use, and a script can do more than its name says.
+  A script that switches a light can also switch a lock or an alarm. Before you put a script or a button on a layout,
+  read what it does in Home Assistant. Do not put on a screen a control that you would not want anyone in the room to press.
+- The traffic on port 8092 is plain `http`. Use it only on a network you trust.
 
 ## Disclaimer
 

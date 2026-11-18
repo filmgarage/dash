@@ -1,5 +1,6 @@
 """DASH add-on: the editor (Home Assistant Ingress, port 8099) and the screen API (port 8092)."""
 import asyncio
+import signal
 import logging
 import os
 
@@ -65,12 +66,12 @@ async def main():
         forecasts.schedule(entity_id)
 
     bridge.on_state = on_bridge_state
-    asyncio.ensure_future(forecasts.run())
+    background = [asyncio.ensure_future(forecasts.run())]
 
     def on_active_changed(added, removed):
         bridge.active_changed()
         if removed:
-            asyncio.ensure_future(hub.announce_removed(removed))
+            background.append(asyncio.ensure_future(hub.announce_removed(removed)))
 
     active.listeners.append(on_active_changed)
 
@@ -79,17 +80,40 @@ async def main():
              "settings_path": SETTINGS_PATH, "saved": load_saved(SETTINGS_PATH)}
     editor = build_app(editor_api.add_routes, state, [ingress_only])
     screens = build_app(screen_api.add_routes, state)
+    runners = []
     for app, port in ((editor, UI_PORT), (screens, SCREEN_PORT)):
         runner = web.AppRunner(app)
+        runners.append(runner)
         await runner.setup()
         await web.TCPSite(runner, "0.0.0.0", port).start()
     log.info("DASH started: editor on %d, screens on %d", UI_PORT, SCREEN_PORT)
 
-    if SUPERVISOR_TOKEN:
-        await bridge.run()
-    else:
-        await asyncio.Event().wait()
+    try:
+        if SUPERVISOR_TOKEN:
+            await bridge.run()
+        else:
+            await asyncio.Event().wait()
+    finally:
+        # Shutdown: stop the background work, then the web servers, then the HTTP session.
+        for task in background:
+            task.cancel()
+        await asyncio.gather(*background, return_exceptions=True)
+        for runner in runners:
+            await runner.cleanup()
+        await session.close()
+
+
+async def run_until_stopped():
+    """Runs main until Ctrl-C or a stop signal from the Supervisor, then lets main shut down cleanly."""
+    task = asyncio.ensure_future(main())
+    loop = asyncio.get_running_loop()
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        loop.add_signal_handler(sig, task.cancel)
+    try:
+        await task
+    except asyncio.CancelledError:
+        log.info("DASH stopped")
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    asyncio.run(run_until_stopped())

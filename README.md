@@ -43,7 +43,8 @@ The page is only reachable through Home Assistant's login, not on port 8092.
 ## Safety
 
 The screens are served on your local network only, on port 8092. Read the safety chapter in
-[dash/README.md](dash/README.md) before you publish anything, and do not forward port 8092 on your router.
+[dash/README.md](dash/README.md) and the network guide in [docs/NETWORK-SECURITY.md](docs/NETWORK-SECURITY.md)
+before you publish anything. Do not forward port 8092 on your router.
 
 ## Disclaimer
 

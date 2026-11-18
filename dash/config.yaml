@@ -1,5 +1,5 @@
 name: DASH
-version: "0.7.1"
+version: "0.7.3"
 slug: dash
 description: Lightweight Home Assistant dashboards
 stage: experimental

@@ -8,8 +8,8 @@ from errors import ApiError
 from ha_bridge import public_view
 from store import checked, parse_path
 from settings import UI_DIR
-from web_common import (SERVICE_NAME_RE, check_screen_token, handle_errors, is_allowed,
-                        picture_response, service_data)
+from web_common import (SERVICE_NAME_RE, check_screen_token, etag_matches, handle_errors, is_allowed,
+                        picture_entry, picture_response, service_data)
 
 log = logging.getLogger("dash.screen")
 WS_CLOSE_UNAUTHORIZED = 4401
@@ -82,6 +82,24 @@ async def imagedata(request):
     return await picture_response(app, entity_id, request.query.get("hash", ""))
 
 
+@handle_errors
+async def image(request):
+    """The picture as plain image bytes, with an ETag. The browser asks again with If-None-Match."""
+    check_screen_token(request)
+    app = request.app
+    entity_id = request.query.get("entity", "")
+    if not entity_id.startswith("image.") or not is_allowed(app["options"], entity_id) \
+            or entity_id not in app["active"].entities:
+        raise ApiError("no allowed image entity", 403)
+    app["ha"].require_token()
+    cached = await picture_entry(app, entity_id)
+    etag = f'"{cached["hash"]}"'
+    headers = {"ETag": etag, "Cache-Control": "no-cache", "X-Content-Type-Options": "nosniff"}
+    if etag_matches(request.headers.get("If-None-Match"), etag):
+        return web.Response(status=304, headers=headers)
+    return web.Response(body=cached["data"], content_type=cached["content_type"], headers=headers)
+
+
 async def live(request):
     ws = web.WebSocketResponse(heartbeat=30)
     try:
@@ -140,4 +158,5 @@ def add_routes(app):
     router.add_get("/layout_load", layout_load)
     router.add_get("/service", service)
     router.add_get("/imagedata", imagedata)
+    router.add_get("/image", image)
     router.add_get("/ws", live)

@@ -149,7 +149,7 @@ All paths are relative to the editor page. No token. Same parameters and respons
 ### 3.1 `api/status`
 
 ```json
-{"version": "0.7.1", "state": "running", "read_token": "<read token>", "screen_port": 8092,
+{"version": "0.7.3", "state": "running", "read_token": "<read token>", "screen_port": 8092,
  "publish_url_prefix": "/dash/", "ha_connected": true, "active_entities": 3,
  "allowed_domains": ["light", "sensor", "switch"], "excluded_domains": ["alarm_control_panel", "lock"],
  "screen_address_mode": "ip", "screen_host": "192.168.69.248", "screen_host_source": "detected"}

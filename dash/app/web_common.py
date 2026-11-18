@@ -1,12 +1,15 @@
 """Helpers shared by the editor API and the screen API."""
+import asyncio
 import base64
 import functools
 import hashlib
 import logging
 import re
 import secrets
+import time
 from datetime import datetime
 
+import aiohttp
 from aiohttp import web
 
 from errors import ApiError
@@ -26,6 +29,10 @@ def error(message, status):
     return web.json_response({"error": message}, status=status)
 
 
+UNREACHABLE_LOG_EVERY = 60  # seconds between two log lines about an unreachable Home Assistant
+_last_unreachable_log = {"at": None}
+
+
 def handle_errors(handler):
     @functools.wraps(handler)
     async def wrapper(request):
@@ -33,6 +40,15 @@ def handle_errors(handler):
             return await handler(request)
         except ApiError as err:
             return error(err.message, err.status)
+        except (aiohttp.ClientError, asyncio.TimeoutError) as err:
+            # Home Assistant is unreachable. Screens and the editor poll every few seconds, so log one
+            # short line per minute instead of a traceback for every request.
+            now = time.monotonic()
+            last = _last_unreachable_log["at"]
+            if last is None or now - last >= UNREACHABLE_LOG_EVERY:
+                _last_unreachable_log["at"] = now
+                log.warning("%s: Home Assistant not reachable (%s)", handler.__name__, type(err).__name__)
+            return error("Home Assistant not reachable", 502)
         except Exception as err:
             log.exception("%s failed", handler.__name__)
             return error(f"{type(err).__name__}: {err}", 500)
@@ -126,8 +142,11 @@ def check_screen_token(request):
         raise ApiError("unauthorized", 401)
 
 
-async def picture_response(app, entity_id, client_hash):
-    """The picture of an image entity, cached until Home Assistant reports a new last_updated."""
+MAX_CACHED_PICTURES = 32
+
+
+async def picture_entry(app, entity_id):
+    """The picture of an image entity as bytes, cached until Home Assistant reports a new last_updated."""
     ha = app["ha"]
     s = await ha.state(entity_id)
     if s is None:
@@ -140,12 +159,25 @@ async def picture_response(app, entity_id, client_hash):
         if not picture:
             raise ApiError("entity has no picture", 404)
         data, content_type = await ha.picture(picture)
-        cached = {
-            "stamp": stamp,
-            "hash": hashlib.sha256(data).hexdigest(),
-            "data_url": f"data:{content_type};base64," + base64.b64encode(data).decode("ascii"),
-        }
+        cached = {"stamp": stamp, "hash": hashlib.sha256(data).hexdigest(),
+                  "data": data, "content_type": content_type}
+        cache.pop(entity_id, None)
         cache[entity_id] = cached
+        while len(cache) > MAX_CACHED_PICTURES:  # oldest first; bounds the memory a screen can use
+            cache.pop(next(iter(cache)))
+    return cached
+
+
+async def picture_response(app, entity_id, client_hash):
+    """Base64 form for the editor and the older viewer. The binary endpoint /image is preferred."""
+    cached = await picture_entry(app, entity_id)
     if client_hash == cached["hash"]:
         return web.json_response({"unchanged": True, "hash": cached["hash"]})
-    return web.json_response({"hash": cached["hash"], "data_url": cached["data_url"]})
+    data_url = f"data:{cached['content_type']};base64," + base64.b64encode(cached["data"]).decode("ascii")
+    return web.json_response({"hash": cached["hash"], "data_url": data_url})
+
+
+def etag_matches(header, etag):
+    """True when an If-None-Match header names the given ETag."""
+    return any(part.strip().removeprefix("W/") == etag for part in (header or "").split(","))
+

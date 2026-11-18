@@ -1,9 +1,11 @@
 """Connected screens and the entities each one listens to."""
+import asyncio
 import logging
 
 from ha_bridge import public_view
 
 log = logging.getLogger("dash.hub")
+SEND_TIMEOUT = 5  # seconds a screen may take to accept one message
 
 
 class Hub:
@@ -44,11 +46,13 @@ class Hub:
             await self._send(entity_id, {"type": "removed", "entity_id": entity_id})
 
     async def _send(self, entity_id, message):
-        for ws, wanted in list(self.clients.items()):
-            if entity_id is not None and wanted is not None and entity_id not in wanted:
-                continue
-            try:
-                await ws.send_json(message)
-            except Exception:
-                log.debug("A screen went away; dropping it")
-                self.clients.pop(ws, None)
+        targets = [ws for ws, wanted in list(self.clients.items())
+                   if entity_id is None or wanted is None or entity_id in wanted]
+        await asyncio.gather(*(self._send_one(ws, message) for ws in targets))
+
+    async def _send_one(self, ws, message):
+        try:
+            await asyncio.wait_for(ws.send_json(message), SEND_TIMEOUT)
+        except Exception:  # gone, or too slow: drop it so the other screens are not held up
+            log.debug("A screen went away or is too slow; dropping it")
+            self.clients.pop(ws, None)

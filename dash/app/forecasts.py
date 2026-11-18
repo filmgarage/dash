@@ -86,4 +86,7 @@ class Forecasts:
             await asyncio.sleep(REFRESH_SECONDS)
             for entity_id in sorted(self.active.entities):
                 if entity_id.startswith("weather."):
-                    await self.refresh(entity_id)
+                    try:
+                        await self.refresh(entity_id)
+                    except Exception as err:  # keep the periodic task alive whatever one entity does
+                        log.warning("Forecast refresh for %s failed: %s", entity_id, err)
