@@ -172,4 +172,4 @@ Everything is in the HA App's data folder, so it is kept across updates and incl
 - Entities are monitored for the screens only after publishing. A layout that is only drafted does not show live
   values anywhere.
 - The area of an entity is not available.
-- The screen API uses one token for all screens.
+- Each screen has its own token (`autotoken_…`). There is no shared token.
