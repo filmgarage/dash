@@ -1,0 +1,82 @@
+name: DASH
+version: "0.8.2"
+slug: dash
+description: Lightweight Home Assistant dashboards
+stage: experimental
+arch:
+  - amd64
+  - aarch64
+  - armv7
+init: false
+startup: application
+boot: auto
+ingress: true
+ingress_port: 8099
+panel_icon: mdi:view-dashboard-edit-outline
+panel_title: DASH
+panel_admin: true
+homeassistant_api: true
+ports:
+  8092/tcp: 8092
+ports_description:
+  8092/tcp: Screens (dashboards for frames and tablets)
+options:
+  screen_address_mode: ip
+  screen_ip: ""
+  log_level: info
+  allow_domains: []
+  allow_entities: []
+  exclude_domains:
+    - lock
+    - alarm_control_panel
+  exclude_entities: []
+  services: []
+  allow_services: []
+  exclude_services:
+    - lock
+    - unlock
+    - open
+    - alarm_arm_away
+    - alarm_arm_home
+    - alarm_arm_night
+    - alarm_arm_vacation
+    - alarm_arm_custom_bypass
+    - alarm_disarm
+    - alarm_trigger
+  read_services: []
+  allow_read_services: []
+  exclude_read_services:
+    - lock
+    - unlock
+    - open
+    - alarm_arm_away
+    - alarm_arm_home
+    - alarm_arm_night
+    - alarm_arm_vacation
+    - alarm_arm_custom_bypass
+    - alarm_disarm
+    - alarm_trigger
+schema:
+  screen_address_mode: list(ip|url)
+  screen_ip: str?
+  log_level: list(debug|info|warning|error)
+  allow_domains:
+    - str
+  allow_entities:
+    - str
+  exclude_domains:
+    - str
+  exclude_entities:
+    - str
+  services:
+    - str
+  allow_services:
+    - str
+  exclude_services:
+    - str
+  read_services:
+    - str
+  allow_read_services:
+    - str
+  exclude_read_services:
+    - str
