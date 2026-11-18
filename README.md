@@ -40,6 +40,8 @@ The status page lists the entities that DASH monitors, the layouts that use each
 missing from Home Assistant. Open **DASH** in the sidebar and add `status` to the end of the address in your browser.
 The page is only reachable through Home Assistant's login, not on port 8092.
 
+The address of the page contains a code that is different for every Home Assistant installation, so this README cannot link to it directly. Step by step instructions are in the [status page section of the HA App README](dash/README.md#status-page).
+
 ## Safety
 
 The screens are served on your local network only, on port 8092. Read the safety chapter in

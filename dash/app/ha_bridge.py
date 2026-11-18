@@ -4,6 +4,8 @@ import logging
 
 from aiohttp import ClientSession, WSMsgType
 
+from web_common import to_ms
+
 log = logging.getLogger("dash.bridge")
 
 VIEW_ATTRIBUTES = ["brightness", "brightness_pct", "min", "max", "options", "hvac_modes", "min_temp", "max_temp",
@@ -37,6 +39,23 @@ def apply_event(states, event):
         states.pop(entity_id, None)
         changed.add(entity_id)
     return changed
+
+
+def rest_view(entity_id, s):
+    """The same shape as public_view, for a state read once over REST (when the live table is not ready yet)."""
+    attrs = s.get("attributes") or {}
+    unit = attrs.get("unit_of_measurement") or ""
+    if not unit and entity_id.split(".", 1)[0] in TEMPERATURE_DOMAINS:
+        unit = attrs.get("temperature_unit") or ""
+    return {
+        "state": s.get("state"),
+        "name": attrs.get("friendly_name", entity_id),
+        "unit": unit,
+        "icon": attrs.get("icon", "") or "",
+        "device_class": attrs.get("device_class", "") or "",
+        "last_changed": to_ms(s.get("last_changed")),
+        "attributes": {k: attrs[k] for k in VIEW_ATTRIBUTES if k in attrs},
+    }
 
 
 def public_view(entity_id, st):

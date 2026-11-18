@@ -25,10 +25,17 @@ class ViewerTests(unittest.TestCase):
             text = f.read()
         self.assertEqual(find_problems(text), [], "viewer breaks contract 6.1")
 
+    def test_viewer_calls_no_undefined_image_function(self):
+        # 0.7.5: the viewer called images(), which no longer exists; pictures follow last_changed in paint().
+        with open(VIEWER_FILE, encoding="utf-8") as f:
+            text = f.read()
+        self.assertNotIn("images()", text)
+        self.assertNotIn("setInterval(images", text)
+
     def test_viewer_names_its_contract_version(self):
         with open(VIEWER_FILE, encoding="utf-8") as f:
             first = f.readline()
-        self.assertIn("contract 8.6", first)
+        self.assertIn("contract 8.7", first)
 
 
 if __name__ == "__main__":

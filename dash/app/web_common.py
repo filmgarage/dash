@@ -3,6 +3,7 @@ import asyncio
 import base64
 import functools
 import hashlib
+import json
 import logging
 import re
 import secrets
@@ -98,18 +99,6 @@ def is_allowed(options, entity_id):
     return domain in options["allow_domains"] or entity_id in options["allow_entities"]
 
 
-def plain_state(entity_id, state):
-    attrs = state.get("attributes") or {}
-    return {
-        "state": state.get("state"),
-        "unit": attrs.get("unit_of_measurement", "") or "",
-        "name": attrs.get("friendly_name", entity_id),
-        "icon": attrs.get("icon", "") or "",
-        "device_class": attrs.get("device_class", "") or "",
-        "last_changed": to_ms(state.get("last_changed")),
-    }
-
-
 def coerce(value):
     """Query values are strings. Numbers and booleans are converted for service data."""
     if value in ("true", "false"):
@@ -180,4 +169,23 @@ async def picture_response(app, entity_id, client_hash):
 def etag_matches(header, etag):
     """True when an If-None-Match header names the given ETag."""
     return any(part.strip().removeprefix("W/") == etag for part in (header or "").split(","))
+
+
+def json_etag(request, payload):
+    """A JSON answer with an ETag. An unchanged answer comes back as 304 without a body."""
+    body = json.dumps(payload, sort_keys=True).encode("utf-8")
+    etag = '"' + hashlib.sha256(body).hexdigest()[:32] + '"'
+    headers = {"ETag": etag, "Cache-Control": "no-cache"}
+    if etag_matches(request.headers.get("If-None-Match"), etag):
+        return web.Response(status=304, headers=headers)
+    return web.Response(body=body, content_type="application/json", headers=headers)
+
+
+def picture_http(request, cached):
+    """Plain image bytes with an ETag. An unchanged picture comes back as 304 without a body."""
+    etag = f'"{cached["hash"]}"'
+    headers = {"ETag": etag, "Cache-Control": "no-cache", "X-Content-Type-Options": "nosniff"}
+    if etag_matches(request.headers.get("If-None-Match"), etag):
+        return web.Response(status=304, headers=headers)
+    return web.Response(body=cached["data"], content_type=cached["content_type"], headers=headers)
 

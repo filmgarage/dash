@@ -96,7 +96,7 @@ class ApiTests(unittest.IsolatedAsyncioTestCase):
     async def test_status_through_ingress(self):
         resp = await self.editor.get("/api/status", headers=INGRESS)
         self.assertEqual(resp.status, 200)
-        self.assertEqual((await resp.json())["version"], "0.7.3")
+        self.assertEqual((await resp.json())["version"], "0.7.5")
 
     async def test_publishing_adds_and_unpublishing_removes_entities(self):
         resp = await self.editor.post("/api/layout_save?path=kitchen/morning", json=LAYOUT, headers=INGRESS)
@@ -279,9 +279,6 @@ class ApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(await again.json(), {"unchanged": True, "hash": first["hash"]})
 
 
-if __name__ == "__main__":
-    unittest.main()
-
     async def test_image_endpoint_serves_binary_bytes_with_etag(self):
         self.active.set_page("cameras", ["image.qr"])
         resp = await self.screen.get(f"/image?entity=image.qr&token={TOKEN}")
@@ -306,6 +303,58 @@ if __name__ == "__main__":
         self.assertEqual((await self.screen.get(f"/image?entity=image.other&token={TOKEN}")).status, 403)
 
 
+    async def test_screen_states_answers_304_for_unchanged_states(self):
+        self.active.set_page("lights", ["light.kitchen"])
+        first = await self.screen.get(f"/states?ids=light.kitchen&token={TOKEN}")
+        etag = first.headers["ETag"]
+        again = await self.screen.get(f"/states?ids=light.kitchen&token={TOKEN}",
+                                      headers={"If-None-Match": etag})
+        self.assertEqual(again.status, 304)
+
+    async def test_editor_states_come_from_the_live_table_with_attributes(self):
+        async def no_rest(entity_id):
+            raise AssertionError("REST must not be called for a monitored entity")
+        self.ha.state = no_rest
+        resp = await self.editor.get("/api/states?ids=light.kitchen", headers=INGRESS)
+        self.assertEqual(resp.status, 200)
+        view = (await resp.json())["states"]["light.kitchen"]
+        self.assertEqual(view["state"], "off")
+        self.assertEqual(view["name"], "Kitchen")
+        self.assertIn("attributes", view)
+        self.assertIsInstance(view["last_changed"], int)
+
+    async def test_editor_states_ask_home_assistant_only_for_entities_missing_from_the_table(self):
+        del self.bridge.states["light.hall"]
+        calls = []
+        original = self.ha.state
+        async def counting(entity_id):
+            calls.append(entity_id)
+            return await original(entity_id)
+        self.ha.state = counting
+        resp = await self.editor.get("/api/states?ids=light.kitchen,light.hall", headers=INGRESS)
+        self.assertEqual(calls, ["light.hall"])
+        self.assertEqual((await resp.json())["states"]["light.hall"]["state"], "on")
+
+    async def test_editor_states_answers_304_for_unchanged_states(self):
+        first = await self.editor.get("/api/states?ids=light.kitchen", headers=INGRESS)
+        etag = first.headers["ETag"]
+        again = await self.editor.get("/api/states?ids=light.kitchen", headers={**INGRESS, "If-None-Match": etag})
+        self.assertEqual(again.status, 304)
+
+    async def test_editor_image_serves_bytes_with_etag_and_304(self):
+        first = await self.editor.get("/api/image?entity=image.qr", headers=INGRESS)
+        self.assertEqual(first.status, 200)
+        self.assertEqual(first.headers["Content-Type"], "image/png")
+        self.assertEqual(await first.read(), b"png-bytes")
+        again = await self.editor.get("/api/image?entity=image.qr",
+                                      headers={**INGRESS, "If-None-Match": first.headers["ETag"]})
+        self.assertEqual(again.status, 304)
+
+    async def test_editor_image_refuses_other_entities_and_requests_outside_ingress(self):
+        self.assertEqual((await self.editor.get("/api/image?entity=light.kitchen", headers=INGRESS)).status, 403)
+        self.assertNotEqual((await self.editor.get("/api/image?entity=image.qr")).status, 200)
+
+
 class UnreachableHaTests(unittest.TestCase):
     def test_unreachable_home_assistant_is_a_502_without_traceback(self):
         import asyncio as _asyncio
@@ -322,3 +371,7 @@ class UnreachableHaTests(unittest.TestCase):
                 self.assertEqual(resp.status, 502)
         self.assertEqual(len(logs.records), 1)
         self.assertNotIn("Traceback", logs.output[0])
+
+
+if __name__ == "__main__":
+    unittest.main()

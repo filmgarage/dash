@@ -1,12 +1,24 @@
 # Contract: DASH
 
-**Version:** 8.6 (adds 0e and section 3.6; changes sections 3, 3.1, 4.2, 7, 7.1, 7.2, 8, 10, 11.4 and 12)
+**Version:** 8.7 (adds 0f, sections 3.7 and 4.3; changes sections 3, 4, 4.1, 6.1, 6.2, 12.4; section 0e and 3.6 remain from 8.6)
 
 This contract describes how the designer (the editor front end) works with the DASH HA App. The HA App serves the
 editor through Home Assistant Ingress and serves the screens on port 8092 of the Home Assistant host.
 
 Everything not mentioned here is unchanged from version 7.1: the layout format (sections 3 and 3a), layout paths
 (4.8), skins (11), default icons (13), image naming and limits (14, 8) and the error table (5).
+
+## 0f. Changes in version 8.7 (polling, ETag and pictures)
+
+- Every state answer carries an `ETag`. A poll that finds nothing new gets `304` without a body (section 4.3).
+- New editor endpoint `api/image` (section 3.7): the picture of an allowed image entity as binary data, for `<img src>`.
+- Polling is reduced: the screen polls `states` every 5 minutes while the push channel is open (was 60 seconds),
+  and every 2 seconds only while it is closed.
+- Pictures are not polled any more. A picture is loaded once with `v=<last_changed>` and loaded again only when the
+  `last_changed` of its entity changes (section 4.3). The 10-second picture poll is removed.
+- `api/states` returns the live state table with the same fields as `states` (section 12.4), not one Home Assistant
+  request per entity.
+- **For the designer and the viewer:** the requirements are in section 4.3, marked **Required**.
 
 ## 0e. Changes in version 8.6 (skin in the layout)
 
@@ -125,8 +137,9 @@ All paths are relative to the editor page. No token. Same parameters and respons
 |---|---|---|---|---|
 | GET | `api/status` | - | - | version, state and the values the editor needs for screen URLs (3.1) |
 | GET | `api/entities` | - | - | allowed entities with names, icons and attributes (7.1 section 2.2a) |
-| GET | `api/states` | `ids` | - | current states of **any allowed entity**, not only monitored ones (7.1 section 2.1a) |
-| GET | `api/imagedata` | `entity`, `hash` (optional) | - | picture of **any allowed** image entity, for the editor preview (7.1 section 2.3) |
+| GET | `api/states` | `ids` | - | current states of **any allowed entity**, not only monitored ones, from the live state table (12.4); `ETag` and `304` (4.3) |
+| GET | `api/image` | `entity` | - | picture of **any allowed** image entity as binary data, for `<img src>` (3.7) |
+| GET | `api/imagedata` | `entity`, `hash` (optional) | - | picture of **any allowed** image entity as base64, for the editor preview (7.1 section 2.3) |
 | GET | `api/service` | `entity_id`, `service` | - | run an action for the editor preview (7.1 section 2.4) |
 | GET | `api/file` | `path` | - | a published file, for previews (3.3) |
 | GET | `api/layouts` | - | - | tree of layouts and folders (7.1 section 4.1) |
@@ -149,7 +162,7 @@ All paths are relative to the editor page. No token. Same parameters and respons
 ### 3.1 `api/status`
 
 ```json
-{"version": "0.7.3", "state": "running", "read_token": "<read token>", "screen_port": 8092,
+{"version": "0.7.1", "state": "running", "read_token": "<read token>", "screen_port": 8092,
  "publish_url_prefix": "/dash/", "ha_connected": true, "active_entities": 3,
  "allowed_domains": ["light", "sensor", "switch"], "excluded_domains": ["alarm_control_panel", "lock"],
  "screen_address_mode": "ip", "screen_host": "192.168.69.248", "screen_host_source": "detected"}
@@ -220,6 +233,15 @@ option, saved, detected).
   without `skin` gets a URL without the parameter, and the viewer then uses the default skin (section 12.5).
 - Example: `http://192.168.69.248:8092/dash/viewer.html?layout=kitchen/morning&skin=night&token=<read token>`.
 
+### 3.7 `api/image`
+
+- Query: `entity`, an `image.` entity that is allowed (section 7.2). No token. Not limited to monitored entities.
+- Response: the picture bytes with their content type (`image/png`, `image/jpeg`, `image/webp` or `image/gif`).
+- Headers: `ETag` (a hash of the bytes), `Cache-Control: no-cache`, `X-Content-Type-Options: nosniff`.
+- With `If-None-Match` equal to the current `ETag`: `304` without a body.
+- Errors: `403` for an entity that is not an allowed image; `502` when Home Assistant cannot be reached (section 8).
+- Use it as `api/image?entity=image.qr` in `<img src>`. Add `v=<last_changed>` as described in section 4.3.
+
 ## 4. Screen server (port 8092)
 
 Two kinds of access:
@@ -227,10 +249,11 @@ Two kinds of access:
 | Method | Path | Query | Auth | Purpose |
 |---|---|---|---|---|
 | GET | `/dash/<path>` | - | none | published pages, `viewer.html`, skins and images (section 2). No directory listing: `403` or `404` for a folder. |
-| GET | `states` | `ids`, `token` | read token | states of **monitored** entities only (others are left out, not an error) |
+| GET | `states` | `ids`, `token` | read token | states of **monitored** entities only (others are left out, not an error); `ETag` and `304` (4.3) |
 | GET | `layout_load` | `path`, `token` | read token | the **published version** of a layout (`404` if not published) |
 | GET | `service` | `entity_id`, `service`, `layout`, `token` | read token | run an action; the entity must be on the named published layout (7.1 section 1.2) |
-| GET | `imagedata` | `entity`, `hash` (optional), `token` | read token | picture of a monitored image entity (7.1 section 2.3) |
+| GET | `image` | `entity`, `token` | read token | picture of a monitored image entity as binary data, with `ETag` and `304` (4.3) |
+| GET | `imagedata` | `entity`, `hash` (optional), `token` | read token | picture of a monitored image entity as base64 (7.1 section 2.3); not used for pictures on a screen in 8.7 |
 | WS | `ws` | `token` | read token | push updates (section 4.1) |
 
 The read token is given as `?token=<read token>` or as `Authorization: Bearer <read token>`.
@@ -274,7 +297,7 @@ Without `subscribe` the client receives all monitored entities. Entities that ar
 
 - `attributes` holds the keys of section 12.1 that apply to the entity. The viewer uses `brightness` for the light bar.
 - The viewer uses `states` once at start, then the push channel. It polls `states` every 2 seconds only while
-  the push channel is closed, and once a minute as a safety check while it is open.
+  the push channel is closed, and every 5 minutes as a safety check while it is open (section 4.3).
 
 ### 4.2 Same origin
 
@@ -299,6 +322,37 @@ responses. Scripts and tools that call the API directly still need the token (se
   opens it in a new tab, either the Ingress viewer (section 6.2) or a screen URL (section 3.1).
 - The editor never uses a read token for its own requests. The token appears only in the screen URL that the editor
   builds for a link.
+
+### 4.3 Polling, ETag and pictures
+
+**Required** for the designer (editor and Ingress viewer) and for the viewer on the screen server.
+
+**ETag on state answers.** `states` (screen server) and `api/states` (Ingress) send an `ETag`. Send the last `ETag` back
+as `If-None-Match`. When nothing has changed, the answer is `304` without a body. A browser does this by itself when
+the request uses the default cache mode. Do **not** use `cache: "no-store"` for these requests, because that removes
+the `ETag` check.
+
+**Polling intervals.**
+
+| Place | Push channel | Request | Interval |
+|---|---|---|---|
+| Screen server | open | `states` | every 5 minutes (safety check only; changes come from push) |
+| Screen server | closed | `states` | every 2 seconds |
+| Ingress | none (no push across origins, section 4.2) | `api/states` | every 2 seconds, with `If-None-Match` |
+
+**Pictures are loaded once.** A picture is not polled. The `src` of an image tile carries the `last_changed` of its
+entity as `v`:
+
+- Screen server: `/image?entity=image.qr&token=<read token>&v=<last_changed>`
+- Ingress: `api/image?entity=image.qr&v=<last_changed>`
+
+- The picture loads when the tile is shown.
+- It loads again **only when the `last_changed` of that entity changes**. The new value comes from the push channel
+  (a `state` message) on the screen server, or from the next `api/states` answer when push is closed or on Ingress.
+- Do not reload pictures on a timer. The 10-second picture poll of 8.6 is removed.
+- The state of a Home Assistant image entity is the time of its last picture update, so `last_changed` changes when the
+  picture changes.
+- `imagedata` (base64, with `hash`) is not needed for tiles in 8.7. The editor may still use it for its own previews.
 
 ## 5. Monitored entities (automatic selection)
 
@@ -332,21 +386,23 @@ responses. Scripts and tools that call the API directly still need the token (se
 
 | Place | URL | Transport | Token | Used for |
 |---|---|---|---|---|
-| Screen server | `http://<host>:8092/dash/viewer.html?layout=kitchen/morning&skin=night&token=<read token>` | push (`ws`), `layout_load`, `states`, `service`, `imagedata` on port 8092 | read token in the URL | Fully Kiosk and wall tablets |
+| Screen server | `http://<host>:8092/dash/viewer.html?layout=kitchen/morning&skin=night&token=<read token>` | push (`ws`), `layout_load`, `states`, `service`, `image` on port 8092 | read token in the URL | Fully Kiosk and wall tablets |
 | Ingress | `<ingress URL>/viewer?layout=kitchen/morning&skin=night` | polling of the editor API (section 6.2) | none | the designer, in a separate tab |
 
 - The screen server serves the file at `/dash/viewer.html`. Ingress serves it at `viewer`. Both are routes of the HA App.
 - The viewer contains **no token**. On a screen the token is in the URL, so anyone who can read the URL can read the
   token. Keep `read_services` short (section 7).
 - Tiles not on the layout cannot be switched (7.1 section 1.2).
-- Image entities: `imagedata` polled every 10 seconds with the last `hash`, on both places.
+- Image entities: loaded once per `last_changed` with `image` (screen server) or `api/image` (Ingress), not polled
+  (section 4.3).
 
 ### 6.2 The Ingress viewer
 
 - Loads the **published** copy: `api/published_layout`, not the draft (section 3.4).
-- Loads the skin from `api/file?path=skins/<name>.json`, and images through `api/file` and `api/imagedata`.
-- Uses `api/states` for the states of the layout, polled every 2 seconds. It does not use the push channel: a WebSocket
-  to port 8092 from the Ingress origin is not allowed by section 4.2.
+- Loads the skin from `api/file?path=skins/<name>.json`, and images through `api/file` and `api/image`.
+- Uses `api/states` for the states of the layout, polled every 2 seconds with `If-None-Match` (section 4.3). It does
+  not use the push channel: a WebSocket to port 8092 from the Ingress origin is not allowed by section 4.2.
+- Loads pictures with `api/image` and reloads them only when the `last_changed` of the entity changes (section 4.3).
 - Switching a tile uses `api/service` with the same rules as the editor preview (7.1 section 1.2).
 - Has no `api` parameter and no token. The base is the relative `api/` path of the page it is loaded from.
 
@@ -438,7 +494,7 @@ Same as 7.1 section 5, with these changes:
 | `api/publish_save` with `type=json` (skins and the default pointer) | skins cannot be saved; the default skin cannot be set |
 | `viewer.html` served by the HA App (6.1) | no viewer on the screen server, so no screen works |
 | `api/published_layout` (3.4) | the Ingress viewer cannot show a layout |
-| `api/imagedata` (editor) and `imagedata` (screen server) | image entity tiles stay empty |
+| `api/image` (editor) and `image` (screen server) | image entity tiles stay empty |
 | `api/file` (editor) | layout images do not show in the editor preview |
 | Screen URLs built from `screen_host` (or the host name in mode `url`), `publish_url_prefix` and `screen_port` (3.1) | screen URLs point to the wrong place |
 | `read_token` in `api/status` (3.1) | the user types the read token into the editor by hand |
@@ -464,7 +520,7 @@ login, its web server and any reverse proxy in front of it are no longer part of
 |---|---|---|
 | Editor: drafts, layouts, publishing, `read_token` and `screen_host` in `api/status`, service preview | Home Assistant Ingress | a logged-in Home Assistant user |
 | Published pages, viewer, skins, images under `/dash/` | port 8092 | nothing (local network only) |
-| Data: states, `layout_load`, `service`, `imagedata`, push updates | port 8092 | the read token |
+| Data: states, `layout_load`, `service`, `image`, push updates | port 8092 | the read token |
 
 The pages under `/dash/` contain no data and no token. Without the read token a visitor sees the empty layout only.
 
@@ -563,7 +619,8 @@ A tap does not change the state of a tile. The HA App's state is the only source
   for a thermostat, the new target temperature or mode is shown while dimmed. The pending indicator clears when the
   new state arrives, or after 8 seconds if it does not.
 - The HA App sends the `state` push message as soon as Home Assistant reports the change, and `api/states` and
-  `states` return the new state at once, from the live state table, without a cache.
+  `states` return the new state at once, from the live state table, without a cache. An unchanged answer comes back
+  as `304` when the request sends the last `ETag` (section 4.3).
 - A failed service call clears the pending indicator at once and shows the error (section 8).
 
 ### 12.5. Built-in files

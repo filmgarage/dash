@@ -8,8 +8,8 @@ from errors import ApiError
 from ha_bridge import public_view
 from store import checked, parse_path
 from settings import UI_DIR
-from web_common import (SERVICE_NAME_RE, check_screen_token, etag_matches, handle_errors, is_allowed,
-                        picture_entry, picture_response, service_data)
+from web_common import (SERVICE_NAME_RE, check_screen_token, handle_errors, is_allowed, json_etag,
+                        picture_entry, picture_http, picture_response, service_data)
 
 log = logging.getLogger("dash.screen")
 WS_CLOSE_UNAUTHORIZED = 4401
@@ -30,7 +30,7 @@ async def states(request):
     for entity_id in ids:
         if entity_id in active and entity_id in app["bridge"].states:
             out[entity_id] = public_view(entity_id, app["bridge"].states[entity_id])
-    return web.json_response({"states": out})
+    return json_etag(request, {"states": out})
 
 
 @handle_errors
@@ -92,12 +92,7 @@ async def image(request):
             or entity_id not in app["active"].entities:
         raise ApiError("no allowed image entity", 403)
     app["ha"].require_token()
-    cached = await picture_entry(app, entity_id)
-    etag = f'"{cached["hash"]}"'
-    headers = {"ETag": etag, "Cache-Control": "no-cache", "X-Content-Type-Options": "nosniff"}
-    if etag_matches(request.headers.get("If-None-Match"), etag):
-        return web.Response(status=304, headers=headers)
-    return web.Response(body=cached["data"], content_type=cached["content_type"], headers=headers)
+    return picture_http(request, await picture_entry(app, entity_id))
 
 
 async def live(request):

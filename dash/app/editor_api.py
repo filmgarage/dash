@@ -5,8 +5,9 @@ from errors import ApiError
 from network import resolve_screen_host, save_saved, valid_ipv4
 from settings import APP_VERSION, PUBLISH_URL, SCREEN_PORT, UI_DIR
 from store import checked, parse_path
-from web_common import (ENTITY_ATTRIBUTE_KEYS, SERVICE_NAME_RE, handle_errors, is_allowed, json_body,
-                        json_body, picture_response, plain_state, service_data)
+from ha_bridge import public_view, rest_view
+from web_common import (ENTITY_ATTRIBUTE_KEYS, SERVICE_NAME_RE, handle_errors, is_allowed, json_body, json_etag,
+                        picture_entry, picture_http, picture_response, service_data)
 
 
 @handle_errors
@@ -96,6 +97,7 @@ async def entities(request):
 
 @handle_errors
 async def states(request):
+    """Live states from the bridge table (no Home Assistant call per entity). REST only when the table has no entry yet."""
     app = request.app
     app["ha"].require_token()
     ids = [i.strip() for i in request.query.get("ids", "").split(",") if i.strip()][:100]
@@ -103,10 +105,13 @@ async def states(request):
     for entity_id in ids:
         if not is_allowed(app["options"], entity_id):
             continue
+        if entity_id in app["bridge"].states:
+            out[entity_id] = public_view(entity_id, app["bridge"].states[entity_id])
+            continue
         s = await app["ha"].state(entity_id)
         if s is not None:
-            out[entity_id] = plain_state(entity_id, s)
-    return web.json_response({"states": out})
+            out[entity_id] = rest_view(entity_id, s)
+    return json_etag(request, {"states": out})
 
 
 @handle_errors
@@ -296,6 +301,17 @@ async def imagedata(request):
 
 
 @handle_errors
+async def image(request):
+    """Binary picture for the Ingress editor and viewer. Same checks as imagedata; ETag and 304 when unchanged."""
+    app = request.app
+    entity_id = request.query.get("entity", "")
+    if not entity_id.startswith("image.") or not is_allowed(app["options"], entity_id):
+        raise ApiError("no allowed image entity", 403)
+    app["ha"].require_token()
+    return picture_http(request, await picture_entry(app, entity_id))
+
+
+@handle_errors
 async def active(request):
     app = request.app
     reasons = app["active"].reasons()
@@ -334,5 +350,6 @@ def add_routes(app):
     router.add_get("/api/image_list", image_list)
     router.add_post("/api/image_delete", image_delete)
     router.add_get("/api/imagedata", imagedata)
+    router.add_get("/api/image", image)
     router.add_get("/api/file", published_file)
     router.add_get("/api/active", active)

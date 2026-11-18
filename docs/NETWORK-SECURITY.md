@@ -536,7 +536,7 @@ all controls before relying on them.
 
 ## 16. Maintaining this guide
 
-This guide describes DASH HA App 0.7.3 and contract 8.6. Update it in the same change as any of these:
+This guide describes DASH HA App 0.7.5 and contract 8.7. Update it in the same change as any of these:
 
 - A new or changed port, endpoint or path that a screen or a visitor can reach (for example `/image`, section 4.1
   of the contract).
@@ -548,4 +548,4 @@ This guide describes DASH HA App 0.7.3 and contract 8.6. Update it in the same c
 
 Record the version the guide was last reviewed against here:
 
-- Last reviewed: DASH HA App 0.7.3, contract 8.6.
+- Last reviewed: DASH HA App 0.7.5, contract 8.7.
