@@ -1,8 +1,8 @@
 # Changelog
 
-## Viewer 17 (contract 9.0)
+## 0.8.2: viewer 17 (contract 9.0)
 
-Changed `app/ui/viewer.html` from viewer 16 to viewer 17. The contract stays at 9.0.
+Add-on 0.8.2 ships viewer 17 (`app/ui/viewer.html`, previously viewer 16). The contract stays at 9.0.
 
 - Popups for lights, switches and covers: the icon, text and toggle colours now follow the
   tile's own colours (`currentColor` resolves to the tile's text colour in the popup).
