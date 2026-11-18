@@ -33,6 +33,14 @@ class Supervisor:
     def _headers(self):
         return {"Authorization": f"Bearer {self.token}"}
 
+    async def config(self):
+        """The Home Assistant configuration (GET /api/config): internal_url and external_url among others."""
+        async with self.session.get(f"{self.base}/api/config", headers=self._headers(),
+                                    timeout=TIMEOUT) as r:
+            if r.status != 200:
+                raise ApiError(f"Home Assistant answered {r.status}", 502)
+            return await r.json()
+
     async def states(self):
         async with self.session.get(f"{self.base}/api/states", headers=self._headers(),
                                     timeout=TIMEOUT) as r:

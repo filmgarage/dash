@@ -6,7 +6,7 @@ from network import resolve_screen_host, save_saved, valid_ipv4
 from settings import APP_VERSION, PUBLISH_URL, SCREEN_PORT, UI_DIR
 from store import checked, parse_path
 from ha_bridge import public_view, rest_view
-from web_common import (ENTITY_ATTRIBUTE_KEYS, SERVICE_NAME_RE, handle_errors, is_allowed, json_body, json_etag,
+from web_common import (ENTITY_ATTRIBUTE_KEYS, MAX_IDS, SERVICE_NAME_RE, call_params, handle_errors, is_allowed, json_body, json_etag,
                         picture_entry, picture_http, picture_response, service_data)
 
 
@@ -65,9 +65,9 @@ async def status(request):
         "allowed_domains": sorted(app["options"]["allow_domains"] - app["options"]["exclude_domains"]),
         "excluded_domains": sorted(app["options"]["exclude_domains"]),
         **screen_address(app),
-        "read_token": app["options"]["read_token"],
         "screen_port": SCREEN_PORT,
         "publish_url_prefix": PUBLISH_URL + "/",
+        "internal_url": app.get("internal_url"),
     })
 
 
@@ -100,7 +100,7 @@ async def states(request):
     """Live states from the bridge table (no Home Assistant call per entity). REST only when the table has no entry yet."""
     app = request.app
     app["ha"].require_token()
-    ids = [i.strip() for i in request.query.get("ids", "").split(",") if i.strip()][:100]
+    ids = [i.strip() for i in request.query.get("ids", "").split(",") if i.strip()][:MAX_IDS]
     out = {}
     for entity_id in ids:
         if not is_allowed(app["options"], entity_id):
@@ -116,15 +116,17 @@ async def states(request):
 
 @handle_errors
 async def service(request):
+    """GET (kept for older designers) or POST (contract 8.9): see the screen service."""
     app = request.app
     app["ha"].require_token()
-    entity_id = request.query.get("entity_id", "")
-    name = request.query.get("service", "")
+    params = await call_params(request)
+    entity_id = params.get("entity_id", "")
+    name = params.get("service", "")
     if not is_allowed(app["options"], entity_id):
         raise ApiError("entity not allowed", 403)
     if not SERVICE_NAME_RE.match(name) or name not in app["options"]["services"]:
         raise ApiError("service not allowed", 403)
-    data = service_data(request.query)
+    data = service_data(params, name)
     s = await app["ha"].state(entity_id)
     if s is None:
         raise ApiError("entity not found", 404)
@@ -312,6 +314,50 @@ async def image(request):
 
 
 @handle_errors
+async def screens_list(request):
+    return web.json_response({"screens": request.app["screens"].list()})
+
+
+@handle_errors
+async def screen_save(request):
+    """Creates a screen for a published layout, or changes the layout of an existing screen. Keeps its token."""
+    app = request.app
+    layout = parse_path(request.query.get("layout"))
+    if layout is None or not app["store"].is_published(layout):
+        raise ApiError("layout is not published", 400)
+    try:
+        screen = app["screens"].save_screen(request.query.get("name", ""), "/".join(layout))
+    except ValueError as exc:
+        raise ApiError(str(exc), 400)
+    return web.json_response({"screen": screen})
+
+
+@handle_errors
+async def screen_rotate(request):
+    """A new token for a screen. The old token stops working at once, and its open push channels are closed."""
+    app = request.app
+    name = request.query.get("name", "")
+    old = app["screens"].get(name)
+    if old is None:
+        raise ApiError("no such screen", 404)
+    screen = app["screens"].rotate(name)
+    await app["hub"].close_for_token(old["token"])
+    return web.json_response({"screen": screen})
+
+
+@handle_errors
+async def screen_delete(request):
+    app = request.app
+    name = request.query.get("name", "")
+    old = app["screens"].get(name)
+    if old is None:
+        raise ApiError("no such screen", 404)
+    app["screens"].delete(name)
+    await app["hub"].close_for_token(old["token"])
+    return web.json_response({"ok": True})
+
+
+@handle_errors
 async def active(request):
     app = request.app
     reasons = app["active"].reasons()
@@ -336,6 +382,7 @@ def add_routes(app):
     router.add_get("/api/entities", entities)
     router.add_get("/api/states", states)
     router.add_get("/api/service", service)
+    router.add_post("/api/service", service)
     router.add_get("/api/layouts", layouts)
     router.add_get("/api/layout_load", layout_load)
     router.add_post("/api/layout_save", layout_save)
@@ -353,3 +400,7 @@ def add_routes(app):
     router.add_get("/api/image", image)
     router.add_get("/api/file", published_file)
     router.add_get("/api/active", active)
+    router.add_get("/api/screens", screens_list)
+    router.add_post("/api/screen_save", screen_save)
+    router.add_post("/api/screen_rotate", screen_rotate)
+    router.add_post("/api/screen_delete", screen_delete)

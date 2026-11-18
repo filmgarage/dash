@@ -1,6 +1,6 @@
 # Contract: DASH
 
-**Version:** 8.7 (adds 0f, sections 3.7 and 4.3; changes sections 3, 4, 4.1, 6.1, 6.2, 12.4; section 0e and 3.6 remain from 8.6)
+**Version:** 9.0 (adds 0i; 0h, 0g, 0f, 3.7 and 4.3 from 8.7 to 8.9; changes 4 and 4.1 for screen tokens; section 0e and 3.6 remain from 8.6)
 
 This contract describes how the designer (the editor front end) works with the DASH HA App. The HA App serves the
 editor through Home Assistant Ingress and serves the screens on port 8092 of the Home Assistant host.
@@ -8,8 +8,81 @@ editor through Home Assistant Ingress and serves the screens on port 8092 of the
 Everything not mentioned here is unchanged from version 7.1: the layout format (sections 3 and 3a), layout paths
 (4.8), skins (11), default icons (13), image naming and limits (14, 8) and the error table (5).
 
-## 0f. Changes in version 8.7 (polling, ETag and pictures)
+## 0i. Changes in version 9.0 (one token per screen)
 
+HA App 0.8.0. The designer must adopt this to manage screens. There is no master token and no `read_token` option.
+In this contract, "read token" means the **screen token** of that screen from this section, everywhere it appears.
+
+- **Screen tokens.** Each screen has a name, one published layout and its own token, which starts with `autotoken_`.
+  A screen token gives access only to that layout:
+  - `layout_load` only for that layout (`403` for another layout);
+  - `states`, `image`, `imagedata` and the push channel only for the entities on that layout;
+  - `service` only for those entities, and the `layout` parameter (if given) must be that layout. Otherwise `403`.
+  The read_services and the other rules of 7.1 and 12.3 still apply.
+- **No master token.** The `read_token` option is removed, and `api/status` no longer returns a token. A request
+  without a screen token gets `401`. Every screen token is created in the editor (below).
+- **Editor endpoints (Ingress only, no token):**
+
+  | Method | Path | Query | Purpose |
+  |---|---|---|---|
+  | GET | `api/screens` | - | the screens: `name`, `layout`, `token` |
+  | POST | `api/screen_save` | `name`, `layout` | create a screen, or change its layout (its token stays). The layout must be published (`400`). Names: letters, digits, space, dot, dash, underscore; up to 40 characters |
+  | POST | `api/screen_rotate` | `name` | a new token. The old token stops at once, and open push channels of that screen are closed with `4401` |
+  | POST | `api/screen_delete` | `name` | removes the screen and closes its push channels |
+
+- **Screen URL with a screen token:** `http://<host>:8092/dash/viewer.html?layout=<layout>#token=<screen token>`. Use
+  the fragment form (8.9, 0h). The `layout` parameter must be the screen's own layout.
+- **Push channel with a screen token:** the snapshot and the updates hold only the entities of the screen's layout.
+  A subscription can only narrow that set. The set is fixed when the screen connects: after a layout changes, the screen
+  reconnects to get the new entities.
+- **Pictures and services:** a picture or a service call for an entity that is not on the screen's layout gets `403`.
+- **Errors:** a token that is not known gets `401`.
+
+## 0h. Changes in version 8.9 (POST, token in a message, internal URL)
+
+HA App 0.7.7. The designer must adopt these in its next version. GET keeps working for now and will be removed in a later contract.
+
+- **Service calls by POST.** `service` (screen server) and `api/service` (editor) accept `POST`. The parameters come from
+  the query string, or from a JSON object body (`Content-Type: application/json`). A body that is not a JSON object gets `400`.
+  Send the token as `Authorization: Bearer <read token>` on the screen server, not in the URL. The same rules as
+  section 12.3 and 0g apply to both ways of calling.
+- **Token in a message on the push channel.** A screen may connect to `ws` **without** a token in the URL. The first message
+  must then be `{"type": "auth", "token": "<read token>"}`, within 10 seconds. A wrong, missing or late first message closes
+  the connection with code `4401`. A token in the URL or the `Authorization` header still works as before (4.1).
+- **`internal_url` in `api/status`** (3.1, Ingress only): the `internal_url` of the Home Assistant configuration, or `null`
+  when the user has not set it. The designer may show it as the address of Home Assistant.
+- **Screen address order** (3.1): the option `screen_ip`, then the address saved by the designer, then the IPv4 address in
+  `internal_url`, then the state of `sensor.local_ip` (Local IP Address integration). A host name in `internal_url` is not
+  used for screen URLs. The HA App no longer asks the Supervisor for network information (`hassio_api` is removed).
+
+## 0g. Changes in version 8.8 (service data, limits, headers, screen address)
+
+HA App 0.7.6 (contract 8.8). The designer needs no change, except for the service data rule, which the editor preview already follows:
+
+- **Service data (12.3 and 11.4):** a service call may send only the data keys of its service. Other services take no
+  data. Numbers must be numbers (not `true`, `nan` or `inf`); text values are at most 64 characters.
+
+  | Service | Data keys |
+  |---|---|
+  | `set_temperature` | `temperature`, `target_temp_low`, `target_temp_high` |
+  | `set_hvac_mode` | `hvac_mode` |
+  | `set_preset_mode` | `preset_mode` |
+  | `set_fan_mode` | `fan_mode` |
+  | `set_value` | `value` |
+  | `set_cover_position` | `position` |
+  | `set_percentage` | `percentage` |
+  | `select_option` | `option` |
+  | `turn_on` | `brightness_pct` |
+
+  Any other data key gets `400`.
+- **Limits:** `states` and a subscription take at most 100 entities (more are ignored). A screen beyond 20 open push
+  channels is closed with code `1013`. A message from a screen may be at most 64 KB.
+- **Headers:** every answer on both servers has `Referrer-Policy: no-referrer` and `X-Content-Type-Options: nosniff`.
+- **Screen address:** the HA App reads `sensor.local_ip` (Local IP Address integration) at start, not the Supervisor.
+  A value that is not an IPv4 address, or a Docker address, is ignored. Without it, the designer asks for the address.
+
+
+## 0f. Changes in version 8.7 (polling, ETag and pictures)
 - Every state answer carries an `ETag`. A poll that finds nothing new gets `304` without a body (section 4.3).
 - New editor endpoint `api/image` (section 3.7): the picture of an allowed image entity as binary data, for `<img src>`.
 - Polling is reduced: the screen polls `states` every 5 minutes while the push channel is open (was 60 seconds),
@@ -33,7 +106,7 @@ Everything not mentioned here is unchanged from version 7.1: the layout format (
   when it starts, or the designer asks for it once and saves it with `api/settings` (section 3.5).
 - New HA App options: `screen_address_mode`, `screen_ip`, and the allow and exclude lists (section 7). Locks and alarm
   panels are excluded by default (section 7.2).
-- The HA App needs `hassio_api: true` to read the network address from the Supervisor (section 7.1).
+- The HA App used the Supervisor for the network address. From 8.8 it reads `sensor.local_ip` instead (section 0g).
 - The HA App sends the attributes of section 12.1 for climate and weather entities. The unit of both is the temperature unit.
 - The HA App fetches the forecast with `weather.get_forecasts` (section 12.2). It refreshes every 30 minutes and after a
   state change, and sends the result as a `state` push message.
@@ -140,7 +213,7 @@ All paths are relative to the editor page. No token. Same parameters and respons
 | GET | `api/states` | `ids` | - | current states of **any allowed entity**, not only monitored ones, from the live state table (12.4); `ETag` and `304` (4.3) |
 | GET | `api/image` | `entity` | - | picture of **any allowed** image entity as binary data, for `<img src>` (3.7) |
 | GET | `api/imagedata` | `entity`, `hash` (optional) | - | picture of **any allowed** image entity as base64, for the editor preview (7.1 section 2.3) |
-| GET | `api/service` | `entity_id`, `service` | - | run an action for the editor preview (7.1 section 2.4) |
+| GET, POST | `api/service` | `entity_id`, `service` (or JSON body for POST) | - | run an action for the editor preview (7.1 section 2.4, 0h) |
 | GET | `api/file` | `path` | - | a published file, for previews (3.3) |
 | GET | `api/layouts` | - | - | tree of layouts and folders (7.1 section 4.1) |
 | GET | `api/layout_load` | `path` | - | load a draft layout (7.1 section 4.2) |
@@ -162,13 +235,13 @@ All paths are relative to the editor page. No token. Same parameters and respons
 ### 3.1 `api/status`
 
 ```json
-{"version": "0.7.1", "state": "running", "read_token": "<read token>", "screen_port": 8092,
+{"version": "0.7.1", "state": "running", "screen_port": 8092,
  "publish_url_prefix": "/dash/", "ha_connected": true, "active_entities": 3,
  "allowed_domains": ["light", "sensor", "switch"], "excluded_domains": ["alarm_control_panel", "lock"],
  "screen_address_mode": "ip", "screen_host": "192.168.69.248", "screen_host_source": "detected"}
 ```
 
-- `read_token`: the read token from the HA App options, or `""` when none is set. The editor uses it to build viewer
+- ~~`read_token`~~: removed in 9.0 (section 0i). The editor gets the token of each screen from `api/screens`. It uses it to build viewer
   URLs. This is safe: Ingress only lets logged-in Home Assistant users reach `api/status`.
 - `screen_port`: the port of the screen server (section 4).
 - `screen_address_mode`: `ip` or `url` (option `screen_address_mode`).
@@ -251,7 +324,7 @@ Two kinds of access:
 | GET | `/dash/<path>` | - | none | published pages, `viewer.html`, skins and images (section 2). No directory listing: `403` or `404` for a folder. |
 | GET | `states` | `ids`, `token` | read token | states of **monitored** entities only (others are left out, not an error); `ETag` and `304` (4.3) |
 | GET | `layout_load` | `path`, `token` | read token | the **published version** of a layout (`404` if not published) |
-| GET | `service` | `entity_id`, `service`, `layout`, `token` | read token | run an action; the entity must be on the named published layout (7.1 section 1.2) |
+| GET, POST | `service` | `entity_id`, `service`, `layout` (or JSON body for POST) | read or screen token | run an action; the entity must be on the named published layout (7.1 section 1.2, 0h, 0i) |
 | GET | `image` | `entity`, `token` | read token | picture of a monitored image entity as binary data, with `ETag` and `304` (4.3) |
 | GET | `imagedata` | `entity`, `hash` (optional), `token` | read token | picture of a monitored image entity as base64 (7.1 section 2.3); not used for pictures on a screen in 8.7 |
 | WS | `ws` | `token` | read token | push updates (section 4.1) |
@@ -419,7 +492,7 @@ entity as `v`:
 ## 7. Configuration (HA App options)
 
 ```yaml
-read_token: "<read-only token>"    # for the screen server, port 8092
+# no read_token: each screen has its own token (section 0i)
 log_level: info
 screen_address_mode: ip            # ip (screen_host from api/status) or url (the host the editor was opened with)
 screen_ip: ""                      # empty: detected at start, or asked by the designer (3.5)
@@ -446,7 +519,7 @@ ingress_port: 8099            # editor, only reachable through Ingress
 ports:
   8092/tcp: 8092              # screen server, local network
 homeassistant_api: true       # Supervisor token for states, services and forecasts
-hassio_api: true              # Supervisor network information, to find the screen address (3.1)
+                              # hassio_api is no longer used from 8.8; the screen address comes from sensor.local_ip (0g)
 ```
 
 - The HA App has no folder mapping. Everything it writes is in `/data`.
@@ -497,7 +570,7 @@ Same as 7.1 section 5, with these changes:
 | `api/image` (editor) and `image` (screen server) | image entity tiles stay empty |
 | `api/file` (editor) | layout images do not show in the editor preview |
 | Screen URLs built from `screen_host` (or the host name in mode `url`), `publish_url_prefix` and `screen_port` (3.1) | screen URLs point to the wrong place |
-| `read_token` in `api/status` (3.1) | the user types the read token into the editor by hand |
+| the screen token of a screen (`api/screens`, 0i) | the owner copies the screen URL from the designer |
 | `api/settings` (3.5) and `screen_host` in `api/status` (3.1) | the designer cannot find the screen address when the HA App does not know it |
 | Image folder moves and deletes with layouts (7.1 sections 4.4, 4.5) | orphaned or broken images after a move or delete |
 | `layout` push message (4.1) | republished layouts reach the screen only after up to 30 seconds |
@@ -518,7 +591,7 @@ login, its web server and any reverse proxy in front of it are no longer part of
 
 | What | Where | Needs |
 |---|---|---|
-| Editor: drafts, layouts, publishing, `read_token` and `screen_host` in `api/status`, service preview | Home Assistant Ingress | a logged-in Home Assistant user |
+| Editor: drafts, layouts, publishing, screens (`api/screens`), `screen_host` in `api/status`, service preview | Home Assistant Ingress | a logged-in Home Assistant user |
 | Published pages, viewer, skins, images under `/dash/` | port 8092 | nothing (local network only) |
 | Data: states, `layout_load`, `service`, `image`, push updates | port 8092 | the read token |
 
@@ -529,7 +602,7 @@ The pages under `/dash/` contain no data and no token. Without the read token a 
 - Holds access to the monitored states of the published layouts, and to the services in `read_services` on the
   entities of those layouts. It cannot change layouts, publish, delete or read the editor.
 - It is in the screen URL, so it is visible in the browser history and in the screen settings.
-- To rotate it: change `read_token` in the HA App options, then update the URL on every screen.
+- To rotate it: use `api/screen_rotate` in the designer (section 0i), then update the URL of that screen.
 - Use a long random value that is used nowhere else.
 
 ### 11.4 Other protections

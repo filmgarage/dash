@@ -523,10 +523,24 @@ In particular, the current DASH version has these design limitations:
 
 -   Published viewer files, skins and images are accessible without a
     read token to any client that can reach TCP `8092`.
--   One shared read token is used for all screens.
+-   Each screen has its own token from 0.8.0 (contract 9.0), limited to its
+    layout. There is no shared token.
 -   The screen server uses unencrypted HTTP and WebSocket.
 -   A client with access to the screen network may attempt to inspect or
     copy a display's URL and token.
+-   The screen address is read from the entity `sensor.local_ip`, which needs
+    the Local IP Address integration. Without it, the address must be set by
+    hand. Since 0.7.6 the HA App no longer asks the Supervisor for network
+    information, so it has one privilege less.
+-   Service calls are checked per service: a screen or the designer can only
+    send the data keys listed in the contract. Services that are not listed
+    take no data. This does not stop a script or button from doing more than
+    its name says (see section 9).
+-   **Accepted risk:** the HA App does not check what a script or a button
+    does inside Home Assistant. A screen can run an allowed script that
+    unlocks a door or changes an alarm. The owner has accepted this risk.
+    Leave `script`, `button` and `input_button` out of the allow lists unless
+    you need them, and check every script before you put it on a screen.
 
 Use the application only on networks you administer and trust. Keep the
 network rules restrictive, publish only appropriate content, and test
@@ -536,7 +550,7 @@ all controls before relying on them.
 
 ## 16. Maintaining this guide
 
-This guide describes DASH HA App 0.7.5 and contract 8.7. Update it in the same change as any of these:
+This guide describes DASH HA App 0.8.0 and contract 9.0. Update it in the same change as any of these:
 
 - A new or changed port, endpoint or path that a screen or a visitor can reach (for example `/image`, section 4.1
   of the contract).
@@ -548,4 +562,4 @@ This guide describes DASH HA App 0.7.5 and contract 8.7. Update it in the same c
 
 Record the version the guide was last reviewed against here:
 
-- Last reviewed: DASH HA App 0.7.5, contract 8.7.
+- Last reviewed: DASH HA App 0.8.0, contract 9.0.

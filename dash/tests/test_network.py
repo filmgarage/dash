@@ -6,22 +6,54 @@ import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app"))
 
-from network import pick_lan_ip, resolve_screen_host, valid_ipv4  # noqa: E402
+import asyncio  # noqa: E402
 
-SAMPLE = {"data": {"interfaces": [
-    {"interface": "hassio", "ipv4": {"address": ["172.30.32.1/23"]}},
-    {"interface": "eth0", "primary": True, "ipv4": {"address": ["192.168.69.248/24"], "method": "static"}},
-]}}
+from errors import ApiError  # noqa: E402
+from network import detect_lan_ip, ip_from_url, resolve_screen_host, valid_ipv4  # noqa: E402
+
+
+class FakeHa:
+    """Answers for sensor.local_ip only: the value given, None (not there) or an error."""
+    def __init__(self, answer):
+        self.answer = answer
+
+    async def state(self, entity_id):
+        if isinstance(self.answer, Exception):
+            raise self.answer
+        return self.answer
+
+
+def run(coro):
+    return asyncio.run(coro)
 
 
 class NetworkTests(unittest.TestCase):
-    def test_primary_lan_address_wins_and_docker_is_skipped(self):
-        self.assertEqual(pick_lan_ip(SAMPLE), "192.168.69.248")
+    def test_address_from_the_local_ip_sensor(self):
+        self.assertEqual(run(detect_lan_ip(FakeHa({"state": "192.168.69.248"}))), "192.168.69.248")
 
-    def test_no_usable_address(self):
-        self.assertIsNone(pick_lan_ip({"data": {"interfaces": [
-            {"interface": "hassio", "ipv4": {"address": ["172.30.32.1/23"]}}]}}))
-        self.assertIsNone(pick_lan_ip({}))
+    def test_no_sensor_means_no_detection(self):
+        self.assertIsNone(run(detect_lan_ip(FakeHa(None))))
+
+    def test_unusable_values_are_ignored(self):
+        self.assertIsNone(run(detect_lan_ip(FakeHa({"state": "unavailable"}))))
+        self.assertIsNone(run(detect_lan_ip(FakeHa({"state": "172.30.32.1"}))))
+        self.assertIsNone(run(detect_lan_ip(FakeHa({"state": "127.0.0.1"}))))
+
+    def test_internal_url_with_an_address_wins(self):
+        self.assertEqual(run(detect_lan_ip(FakeHa({"state": "10.0.0.9"}), "http://192.168.1.10:8123")), "192.168.1.10")
+
+    def test_internal_url_with_a_host_name_falls_back_to_the_sensor(self):
+        self.assertEqual(run(detect_lan_ip(FakeHa({"state": "10.0.0.9"}), "http://homeassistant.local:8123")),
+                         "10.0.0.9")
+
+    def test_ip_from_url(self):
+        self.assertEqual(ip_from_url("https://192.168.2.5:8123/"), "192.168.2.5")
+        self.assertIsNone(ip_from_url("http://172.30.32.1:8123"))
+        self.assertIsNone(ip_from_url(None))
+        self.assertIsNone(ip_from_url("not a url ]"))
+
+    def test_home_assistant_errors_do_not_stop_the_add_on(self):
+        self.assertIsNone(run(detect_lan_ip(FakeHa(ApiError("Home Assistant answered 500", 502)))))
 
     def test_valid_ipv4(self):
         self.assertEqual(valid_ipv4(" 192.168.1.10 "), "192.168.1.10")

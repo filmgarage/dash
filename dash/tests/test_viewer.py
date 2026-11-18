@@ -35,7 +35,7 @@ class ViewerTests(unittest.TestCase):
     def test_viewer_names_its_contract_version(self):
         with open(VIEWER_FILE, encoding="utf-8") as f:
             first = f.readline()
-        self.assertIn("contract 8.7", first)
+        self.assertIn("contract 9.0", first)
 
 
 if __name__ == "__main__":

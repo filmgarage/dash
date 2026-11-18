@@ -4,7 +4,7 @@ import logging
 import os
 from pathlib import Path
 
-APP_VERSION = "0.7.5"
+APP_VERSION = "0.8.1"
 
 DATA_DIR = Path(os.environ.get("DATA_DIR", "/data"))
 OPTIONS_PATH = Path(os.environ.get("OPTIONS_PATH", str(DATA_DIR / "options.json")))
@@ -78,7 +78,6 @@ def load_options(path=OPTIONS_PATH):
     read_services = (set(raw.get("read_services") or DEFAULT_SERVICES) | names("allow_read_services")) \
         - excluded("exclude_read_services", LOCK_ALARM_SERVICES)
     return {
-        "read_token": str(raw.get("read_token") or ""),
         "log_level": str(raw.get("log_level") or "info"),
         "allow_domains": set(raw.get("allow_domains") or DEFAULT_DOMAINS),
         "allow_entities": names("allow_entities"),

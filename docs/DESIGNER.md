@@ -12,7 +12,7 @@ Home Assistant through Ingress and talks only to the HA App's editor API. The fu
   with relative paths (`assets/logo.png`), never with absolute paths.
 - **The whole file** on every delivery. Not a diff, not a fragment.
 - **First line:** a comment with your version and the contract version, for example
-  `<!-- DASH designer 1.0, contract 8.6 -->`.
+  `<!-- DASH designer 1.1, contract 9.0 -->`.
 - **Language:** English for all text in the file, including comments. Remove old comments and debug code before you
   deliver.
 
@@ -26,13 +26,13 @@ Home Assistant through Ingress and talks only to the HA App's editor API. The fu
 - Which domains the user may pick come from `api/status` (`allowed_domains`). Do not keep a fixed list of domains in the
   editor. The server refuses a layout with a refused entity when it is published.
 - The editor needs **no token** for its own calls. Its requests have no `token` parameter.
-- The read token from `api/status` (`read_token`) is only used to build the screen URL that the user copies.
+- Each screen has its own token from `api/screens`. The editor uses it only to build the screen address the user copies (`#token=`).
 
 ## Endpoints the editor uses
 
 | Method | Path | Purpose |
 |---|---|---|
-| GET | `api/status` | version, prefix, screen port, read token, screen address, connection state |
+| GET | `api/status` | version, prefix, screen port, screen address, `internal_url`, connection state |
 | POST | `api/settings` | save the screen address when the server does not know it |
 | GET | `api/entities`, `api/states` | entities and their states for the editor |
 | GET | `api/service` | run an action for the editor preview |
@@ -64,14 +64,14 @@ Each rule is checked by `tests/test_ui.py`. Run that test before you deliver.
 - **AppDaemon** in any form: no `/api/appdaemon/`, no `appdaemon` in code, comments or exported scripts.
 - **WebSocket, EventSource or XMLHttpRequest** in the editor. Use `fetch` on `api/` paths.
 - **An `<iframe>`** in the editor. The viewer is a separate page (contract 6).
-- **A read token in the editor's own requests.** Do not add `token=` to an `api/` call.
+- **A token in the editor's own requests.** Do not add `token=` or an `Authorization` header to an `api/` call.
 - **A token written into exported code.** Exported scripts must not contain `const TOKEN = ...`.
 
 ## Exported code
 
 If the editor exports code (for example a script for a screen or a template), that code is part of the file and is
 checked too. Exported code must use relative paths and the same rules as above. It must not contain AppDaemon routes,
-absolute `/api/` paths, the read token, or the screen port as a fixed value.
+absolute `/api/` paths, a token, or the screen port as a fixed value.
 
 ## Icon in the browser tab
 

@@ -59,7 +59,7 @@ class FakeHa:
 class PictureCacheTests(unittest.TestCase):
     def test_the_picture_cache_stays_bounded(self):
         async def scenario():
-            app = {"ha": FakeHa(0), "images": {}}
+            app = {"ha": FakeHa(0), "images": {}, "picture_locks": {}}
             for i in range(MAX_CACHED_PICTURES + 20):
                 await picture_entry(app, f"image.n{i}")
             self.assertEqual(len(app["images"]), MAX_CACHED_PICTURES)

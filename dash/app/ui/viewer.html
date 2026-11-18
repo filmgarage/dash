@@ -1,4 +1,4 @@
-<!-- DASH viewer 15, contract 8.7 -->
+<!-- DASH viewer 16, contract 9.0 -->
 <!doctype html>
 <html lang="en">
 <head>
@@ -13,12 +13,11 @@
 <div id="d"></div>
 <div id="m"></div>
 <script>
-// One file, two places (contract 8.7, section 6.1):
-// - screen server: /dash/viewer.html?layout=..&skin=..&token=..  (same-origin API, push channel)
+// One file, two places (contract 8.3, section 6.1):
+// - screen server: /dash/viewer.html?layout=..&skin=..#token=..  (same-origin API, push channel)
 // - Ingress:       viewer?layout=..&skin=..                       (relative api/ paths, polling, no token)
 (function () {
-
-var Q = new URLSearchParams(location.search), LAY = Q.get('layout') || '', SKIN = Q.get('skin') || '', SCR = /\/dash\//.test(location.pathname), TOK = SCR ? Q.get('token') || '' : '', B = SCR ? location.origin + '/' : 'api/', P = SCR ? location.pathname.match(/^(.*?\/dash\/)/)[1] : '', lu = function (u) { u = String(u || ''); var m = /^\/(local\/)?dash\/(.*)$/.exec(u); if (!m) return u; return SCR ? P + m[2] : 'api/file?path=' + encodeURIComponent(m[2]); }, WS = null, wsN = 0;
+var Q = new URLSearchParams(location.search), LAY = Q.get('layout') || '', SKIN = Q.get('skin') || '', SCR = /\/dash\//.test(location.pathname), TOK = SCR ? (new URLSearchParams(location.hash.replace(/^#/, '')).get('token') || '') : '', B = SCR ? location.origin + '/' : 'api/', P = SCR ? location.pathname.match(/^(.*?\/dash\/)/)[1] : '', lu = function (u) { u = String(u || ''); var m = /^\/(local\/)?dash\/(.*)$/.exec(u); if (!m) return u; return SCR ? P + m[2] : 'api/file?path=' + encodeURIComponent(m[2]); }, WS = null, wsN = 0;
 var D = document, root = D.getElementById('d'), msg = D.getElementById('m');
 var DEF = {colors:{background:'#fafafa',tile:'#ffffff',text:'#212121',accent:'#ff9800',on:'#ffc107',off:'#44739e',warning:'#ffa600',error:'#db4437',tile_on:'#ffc107',text_on:'#212121'},background_image:{url:'',fit:'cover',opacity:1},font:{family:'Roboto',url:'',scale:1},tile:{radius:12,border_width:1,border_color:'#e0e0e0',shadow:'none',padding:16,gap:8,show_icon:true,show_name:true,show_state:true,show_toggle:false,on_fill:false,show_extras:true},icons:{style:'filled',size:1,position:'auto',fit:0,shape:'square',badge:'solid',layout:'auto'}};
 var BT = {camera:{tile:{padding:0}},image:{tile:{padding:0}},text:{tile:{padding:0}},clock:{tile:{padding:0}},shape:{tile:{border_width:2}}};
@@ -34,9 +33,11 @@ function mg(a, b) { if (!b) return a; var r = {}, k; for (k in a) r[k] = a[k]; f
 function gp(o, p) { return p.split('.').reduce(function (a, k) { return a == null ? undefined : a[k]; }, o); }
 function strip(o) { var r = {}, k; for (k in o || {}) if (k != 'types') r[k] = o[k]; return r; }
 function esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;'); }
-function url(p, o) { var s = [], k; for (k in o) s.push(k + '=' + encodeURIComponent(o[k])); if (TOK) s.push('token=' + encodeURIComponent(TOK)); return B + p + '?' + s.join('&'); }
+if (location.hash) { try { history.replaceState(null, '', location.pathname + location.search); } catch (e) {} }
+function url(p, o) { var s = [], k; for (k in o) s.push(k + '=' + encodeURIComponent(o[k])); return B + p + '?' + s.join('&'); }
+function hdr(json) { var h = {}; if (TOK) h.Authorization = 'Bearer ' + TOK; if (json) h['Content-Type'] = 'application/json'; return h; }
 function fail(s, m) { var e = new Error(m); e.status = s; return e; }
-function get(p, o) { return fetch(url(p, o)).then(function (r) { return r.text().then(function (t) { var d; try { d = JSON.parse(t); } catch (e) { throw fail(r.status, r.status == 500 ? 'server error' : 'unexpected answer (' + r.status + ')'); } if (!r.ok) throw fail(r.status, d.error || 'error ' + r.status); return d; }); }); }
+function get(p, o, body) { return fetch(url(p, body ? {} : o), body ? {method: 'POST', headers: hdr(true), body: JSON.stringify(o)} : {headers: hdr(false)}).then(function (r) { return r.text().then(function (t) { var d; try { d = JSON.parse(t); } catch (e) { throw fail(r.status, r.status == 500 ? 'server error' : 'unexpected answer (' + r.status + ')'); } if (!r.ok) throw fail(r.status, d.error || 'error ' + r.status); return d; }); }); }
 function say(t) { msg.textContent = t; msg.style.display = t ? 'block' : 'none'; clearTimeout(say.t); if (t) say.t = setTimeout(function () { say(''); }, 4000); }
 function res(type) {
 var sk = skin || {}, r;
@@ -160,7 +161,7 @@ var bi = g.background_image || {}; root.style.backgroundImage = bi.url ? 'url("'
 root.style.fontFamily = '"' + (g.font.family || 'Roboto') + '",Roboto,system-ui,sans-serif';
 if (g.font.url && !D.querySelector('link[data-f]')) { var lk = D.createElement('link'); lk.rel = 'stylesheet'; lk.href = g.font.url; lk.setAttribute('data-f', 1); D.head.appendChild(lk); }
 tiles.forEach(function (x) {
-if (x.t.type == 'haimage' && x.img && x.t.entity) { var ls = live[x.t.entity], lc = ls && (ls.last_changed || ls.state); if (ls && lc !== x.lc) { x.lc = lc; x.img.src = url('image', {entity: x.t.entity, v: lc || ''}); } }
+if (x.t.type == 'haimage' && x.img && x.t.entity) { var ls = live[x.t.entity], lc = ls && (ls.last_changed || ls.state); if (ls && lc !== x.lc) { x.lc = lc; imgLoad(x, url('image', {entity: x.t.entity, v: lc || ''})); } }
 var s = sty(x.t), p = x.p, px = x.px, el = x.el, hg = s.gap / 2, ty = x.t.type, on = onOf(x), lv = live[x.t.entity], un = lv && lv.state == 'unavailable';
 var fill = p.fill !== false && ty != 'text' && ty != 'clock' && ty != 'image';
 var cs = el.style; cs.left = px.x + hg + 'px'; cs.top = px.y + hg + 'px'; cs.width = Math.max(20, px.w - 2 * hg) + 'px'; cs.height = Math.max(20, px.h - 2 * hg) + 'px';
@@ -189,10 +190,10 @@ if (x.b && ty == 'slider') { var mn = +p.min || 0, mx = +p.max || 100, cur = lv 
 }
 function fit(force) { if (!force && innerWidth == VW && innerHeight == VH) return; VW = innerWidth; VH = innerHeight; ST.resizes++; var z = Math.min(innerWidth / W, innerHeight / H); root.style.transform = 'scale(' + z + ')'; root.style.left = Math.round((innerWidth - W * z) / 2) + 'px'; root.style.top = Math.round((innerHeight - H * z) / 2) + 'px'; }
 function toBlob(u) { try { var m = /^data:([^;,]*)(;base64)?,/.exec(u); if (!m || !window.Blob || !window.URL || !URL.createObjectURL) return u; var s = u.slice(m[0].length), b = m[2] ? atob(s) : decodeURIComponent(s), a = new Uint8Array(b.length); for (var i = 0; i < b.length; i++) a[i] = b.charCodeAt(i); return URL.createObjectURL(new Blob([a], {type: m[1] || 'image/png'})); } catch (e) { ST.err = 'image decode: ' + e.message; return u; } }
-function dbg() { if (!DBG) return; var d = D.getElementById('dbg'); if (!d) { d = D.createElement('div'); d.id = 'dbg'; D.body.appendChild(d); } d.textContent = 'viewer 15 | ' + (SCR ? 'screen' : 'ingress') + ' | ' + (WS && WS.readyState == 1 ? 'push' : 'poll') + ' | ' + innerWidth + 'x' + innerHeight + ' | builds ' + ST.builds + ' | paints ' + ST.paints + ' | resizes ' + ST.resizes + ' | night ' + night + (ST.err ? '\n' + ST.err : '') + '\n' + navigator.userAgent; }
+function dbg() { if (!DBG) return; var d = D.getElementById('dbg'); if (!d) { d = D.createElement('div'); d.id = 'dbg'; D.body.appendChild(d); } d.textContent = 'viewer 16 | ' + (SCR ? 'screen' : 'ingress') + ' | ' + (WS && WS.readyState == 1 ? 'push' : 'poll') + ' | ' + innerWidth + 'x' + innerHeight + ' | builds ' + ST.builds + ' | paints ' + ST.paints + ' | resizes ' + ST.resizes + ' | night ' + night + (ST.err ? '\n' + ST.err : '') + '\n' + navigator.userAgent; }
 function call(x, svc, data) {
 var o = {entity_id: x.t.entity, service: svc, layout: LAY}, k; for (k in data || {}) o[k] = data[k];
-get('service', o).then(function () { if (!(WS && WS.readyState == 1)) [300, 1000, 2500].forEach(function (ms) { setTimeout(poll, ms); }); }, function (er) { x.pd = null; x.pt = null; x.pm = null; paint(); say((x.t.label || x.t.entity) + ': ' + (er.status == 403 ? 'not allowed on this screen' : er.status == 503 ? 'device unavailable' : er.status == 404 ? 'entity not found' : er.message)); });
+get('service', o, true).then(function () { if (!(WS && WS.readyState == 1)) [300, 1000, 2500].forEach(function (ms) { setTimeout(poll, ms); }); }, function (er) { x.pd = null; x.pt = null; x.pm = null; paint(); say((x.t.label || x.t.entity) + ': ' + (er.status == 403 ? 'not allowed on this screen' : er.status == 503 ? 'device unavailable' : er.status == 404 ? 'entity not found' : er.message)); });
 }
 function tap(e) {
 if (PO && PO.box.contains(e.target)) return;
@@ -281,19 +282,22 @@ live[id] = st; return true;
 }
 var rq = 0; function later() { if (rq) return; rq = 1; (window.requestAnimationFrame || setTimeout)(function () { rq = 0; paint(); }); }
 function wsIds() { var ids = []; tiles.forEach(function (x) { var en = x.t.entity; if (en && ids.indexOf(en) < 0) ids.push(en); }); var w = skin && skin['switch']; if (w && w.mode == 'auto' && w.source == 'sun') ids.push('sun.sun'); return ids; }
+var REFUSED = false;
 function wsOpen() {
-if (!SCR || !window.WebSocket || !TOK) return; try { WS = new WebSocket(B.replace(/^http/, 'ws') + 'ws?token=' + encodeURIComponent(TOK)); } catch (e) { ST.err = 'push: ' + e.message; return; }
-WS.onopen = function () { wsN = 0; ST.err = ''; try { WS.send(JSON.stringify({type: 'subscribe', entities: wsIds()})); } catch (e) {} };
+if (!SCR || !window.WebSocket || !TOK || REFUSED) return; try { WS = new WebSocket(B.replace(/^http/, 'ws') + 'ws'); } catch (e) { ST.err = 'push: ' + e.message; return; }
+WS.onopen = function () { wsN = 0; ST.err = ''; try { WS.send(JSON.stringify({type: 'auth', token: TOK})); WS.send(JSON.stringify({type: 'subscribe', entities: wsIds()})); } catch (e) {} };
 WS.onmessage = function (e) { var m; try { m = JSON.parse(e.data); } catch (x) { return; } if (apply(m)) later(); };
-WS.onclose = function () { WS = null; wsN++; setTimeout(wsOpen, Math.min(30000, 2000 * wsN)); };
+WS.onclose = function (ev) { WS = null; if (ev && ev.code == 4401) { REFUSED = true; say('Token not accepted'); ST.err = 'push channel closed: token not accepted (4401)'; return; } wsN++; setTimeout(wsOpen, Math.min(30000, 2000 * wsN)); };
 WS.onerror = function () { ST.err = 'push channel not reachable at ' + B + 'ws (polling instead)'; };
 }
+function imgLoad(x, u) { if (!TOK) { x.img.src = u; return; } fetch(u, {headers: hdr(false)}).then(function (r) { if (!r.ok) throw fail(r.status, 'image ' + r.status); return r.blob(); }).then(function (b) { var old = x.blobUrl; x.blobUrl = URL.createObjectURL(b); x.img.src = x.blobUrl; if (old) setTimeout(function () { URL.revokeObjectURL(old); }, 5000); }, function (er) { ST.err = 'image ' + x.t.entity + ': ' + er.message; x.lc = null; }); }
 function poll() {
+if (REFUSED) return;
 if (WS && WS.readyState == 1 && (poll.n = (poll.n || 0) + 1) % 150) return;
 var ids = []; tiles.forEach(function (x) { var en = x.t.entity; if (en && ids.indexOf(en) < 0) ids.push(en); });
 var w = skin && skin['switch']; if (w && w.mode == 'auto' && w.source == 'sun') ids.push('sun.sun');
 if (!ids.length) { paint(); return; }
-get('states', {ids: ids.join(',')}).then(function (r) { live = r.states || {}; paint(); }, function (er) { if (er.status == 401) say('Read token not accepted'); else if (er.status == 503) say(SCR ? 'No read token set in the DASH HA App' : 'Home Assistant is not connected'); else if (!er.status) say((SCR ? 'Screen server' : 'DASH HA App') + ' not reachable'); });
+get('states', {ids: ids.join(',')}).then(function (r) { live = r.states || {}; paint(); }, function (er) { if (er.status == 401) say('Token not accepted'); else if (er.status == 503) say('Home Assistant is not connected'); else if (!er.status) say((SCR ? 'Screen server' : 'DASH HA App') + ' not reachable'); });
 }
 function loadLayout(first) {
 return get(SCR ? 'layout_load' : 'published_layout', {path: LAY}).then(function (r) { var l = r.layout || {}; if (first || l.saved !== saved) { L = l; saved = l.saved; build(); poll(); if (WS && WS.readyState == 1) try { WS.send(JSON.stringify({type: 'subscribe', entities: wsIds()})); } catch (e) {} } }, function (er) { if (first) say('Layout "' + LAY + '": ' + (er.status == 404 ? 'not published' : er.message)); });
@@ -304,7 +308,7 @@ var def = function () { return skinFile('_default').then(function (p) { return s
 return (SKIN ? skinFile(SKIN).catch(function () { console.warn('Skin "' + SKIN + '" not found, using the default skin'); return def(); }) : def()).then(function (s) { skin = s; });
 }
 if (!LAY) { say('Add ?layout=<path> to the address'); return; }
-if (SCR && !TOK) say('Add &token=<read token> to the address');
+if (SCR && !TOK) say('Add #token=<screen token> to the address');
 addEventListener('resize', function () { fit(); }); root.addEventListener('click', tap);
 root.addEventListener('keydown', function (e) { if ((e.key == 'Enter' || e.key == ' ') && (e.target.hasAttribute('data-service') || e.target.hasAttribute('data-pop'))) { e.preventDefault(); tap(e); } });
 D.addEventListener('keydown', function (e) { if (e.key == 'Escape' && PO) popClose(); });

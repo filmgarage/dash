@@ -1,5 +1,5 @@
 name: DASH
-version: "0.7.5"
+version: "0.8.1"
 slug: dash
 description: Lightweight Home Assistant dashboards
 stage: experimental
@@ -16,13 +16,11 @@ panel_icon: mdi:view-dashboard
 panel_title: DASH
 panel_admin: true
 homeassistant_api: true
-hassio_api: true
 ports:
   8092/tcp: 8092
 ports_description:
   8092/tcp: Screens (dashboards for frames and tablets)
 options:
-  read_token: ""
   screen_address_mode: ip
   screen_ip: ""
   log_level: info
@@ -59,7 +57,6 @@ options:
     - alarm_disarm
     - alarm_trigger
 schema:
-  read_token: password
   screen_address_mode: list(ip|url)
   screen_ip: str?
   log_level: list(debug|info|warning|error)

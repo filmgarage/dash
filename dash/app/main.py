@@ -16,9 +16,10 @@ from hub import Hub
 from settings import (ACTIVE_PATH, APP_VERSION, DATA_DIR, HA_WS_URL, LAYOUT_DIR, PUBLISH_DIR, SETTINGS_PATH,
                       PUBLISH_URL, PUBLISHED_DIR, S6_ENV_DIR, SCREEN_PORT, SUPERVISOR_TOKEN,
                       SUPERVISOR_URL, UI_PORT, load_options, log_level)
-from network import detect_lan_ip, load_saved
+from network import detect_lan_ip, load_saved, read_internal_url
+from screens import ScreenStore
 from store import Store
-from web_common import build_app, ingress_only, is_allowed
+from web_common import build_app, ingress_only, is_allowed, security_headers
 
 log = logging.getLogger("dash")
 
@@ -55,8 +56,9 @@ async def main():
             active.remove_page(page)
 
     session = ClientSession()
-    detected_ip = await detect_lan_ip(session, SUPERVISOR_URL, SUPERVISOR_TOKEN)
     ha = Supervisor(SUPERVISOR_URL, SUPERVISOR_TOKEN, session)
+    internal_url = await read_internal_url(ha)
+    detected_ip = await detect_lan_ip(ha, internal_url)
     bridge = HaBridge(HA_WS_URL, SUPERVISOR_TOKEN, active)
     hub = Hub(active, bridge)
     forecasts = Forecasts(ha, bridge.states, active, hub.broadcast)
@@ -76,10 +78,11 @@ async def main():
     active.listeners.append(on_active_changed)
 
     state = {"options": options, "store": store, "active": active, "bridge": bridge,
-             "hub": hub, "ha": ha, "images": {}, "detected_ip": detected_ip,
+             "hub": hub, "ha": ha, "images": {}, "picture_locks": {}, "detected_ip": detected_ip,
+             "internal_url": internal_url, "screens": ScreenStore(DATA_DIR / "screens.json"),
              "settings_path": SETTINGS_PATH, "saved": load_saved(SETTINGS_PATH)}
-    editor = build_app(editor_api.add_routes, state, [ingress_only])
-    screens = build_app(screen_api.add_routes, state)
+    editor = build_app(editor_api.add_routes, state, [ingress_only, security_headers])
+    screens = build_app(screen_api.add_routes, state, [security_headers])
     runners = []
     for app, port in ((editor, UI_PORT), (screens, SCREEN_PORT)):
         runner = web.AppRunner(app)

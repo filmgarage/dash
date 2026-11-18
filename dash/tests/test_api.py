@@ -14,11 +14,12 @@ import screen_api  # noqa: E402
 from active import ActiveSet  # noqa: E402
 from ha_bridge import HaBridge  # noqa: E402
 from hub import Hub  # noqa: E402
+from screens import ScreenStore
 from store import Store  # noqa: E402
 from web_common import build_app, ingress_only  # noqa: E402
 
 INGRESS = {"X-Ingress-Path": "/api/hassio_ingress/test"}
-TOKEN = "read-secret"
+TOKEN = "autotoken_test-screen"  # the screen "Test", on layout kitchen/morning
 JPEG = "data:image/jpeg;base64," + base64.b64encode(b"jpeg-bytes").decode()
 LAYOUT = {"title": "Morning", "tiles": [
     {"id": "t1", "type": "light", "entity": "light.kitchen", "x": 0, "y": 0, "w": 2, "h": 2}]}
@@ -37,6 +38,7 @@ class FakeHa:
                          "attributes": {"entity_picture": "/api/image_proxy/image.qr?token=x"}},
         }
         self.calls = []
+        self.internal_url = None
 
     def require_token(self):
         pass
@@ -50,6 +52,9 @@ class FakeHa:
     async def call_service(self, entity_id, service, data):
         self.calls.append((entity_id, service, data))
 
+    async def config(self):
+        return {"internal_url": self.internal_url}
+
     async def picture(self, entity_picture):
         return b"png-bytes", "image/png"
 
@@ -58,6 +63,8 @@ class ApiTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         root = self.tmp.name
+        with open(os.path.join(root, "screens.json"), "w", encoding="utf-8") as f:
+            json.dump({"screens": [{"name": "Test", "layout": "kitchen/morning", "token": TOKEN}]}, f)
         self.store = Store(os.path.join(root, "layouts"), os.path.join(root, "www"), "/dash",
                            os.path.join(root, "published"))
         self.active = ActiveSet(os.path.join(root, "active.json"))
@@ -69,20 +76,27 @@ class ApiTests(unittest.IsolatedAsyncioTestCase):
         }
         self.hub = Hub(self.active, self.bridge)
         state = {
-            "options": {"read_token": TOKEN, "log_level": "info",
+            "options": {"log_level": "info",
                         "allow_domains": {"light", "sensor", "image"},
                         "screen_address_mode": "ip", "screen_ip": "",
                         "allow_entities": set(), "exclude_domains": {"lock", "alarm_control_panel"},
                         "exclude_entities": set(),
                         "services": {"toggle", "turn_on"}, "read_services": {"toggle"}},
             "store": self.store, "active": self.active, "bridge": self.bridge,
-            "hub": self.hub, "ha": self.ha, "images": {}, "saved": {}, "detected_ip": "192.168.69.248",
+            "hub": self.hub, "ha": self.ha, "images": {}, "picture_locks": {}, "screens": ScreenStore(os.path.join(root, "screens.json")), "saved": {}, "detected_ip": "192.168.69.248",
             "settings_path": os.path.join(self.tmp.name, "settings.json"),
         }
         self.editor = TestClient(TestServer(build_app(editor_api.add_routes, state, [ingress_only])))
         self.screen = TestClient(TestServer(build_app(screen_api.add_routes, state)))
         await self.editor.start_server()
         await self.screen.start_server()
+
+    def publish_screen_layout(self, tiles=None):
+        """Publishes kitchen/morning, the layout of the test screen, with the given tiles (default: LAYOUT)."""
+        layout = LAYOUT if tiles is None else {"title": "Morning", "tiles": tiles}
+        self.store.save_layout(["kitchen", "morning"], layout, "")
+        self.store.publish_html(["kitchen", "morning"], "<html></html>")
+        self.store.snapshot_layout(["kitchen", "morning"])
 
     async def asyncTearDown(self):
         await self.editor.close()
@@ -96,7 +110,7 @@ class ApiTests(unittest.IsolatedAsyncioTestCase):
     async def test_status_through_ingress(self):
         resp = await self.editor.get("/api/status", headers=INGRESS)
         self.assertEqual(resp.status, 200)
-        self.assertEqual((await resp.json())["version"], "0.7.5")
+        self.assertEqual((await resp.json())["version"], "0.8.1")
 
     async def test_publishing_adds_and_unpublishing_removes_entities(self):
         resp = await self.editor.post("/api/layout_save?path=kitchen/morning", json=LAYOUT, headers=INGRESS)
@@ -122,7 +136,8 @@ class ApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((await self.screen.get("/states?token=wrong")).status, 401)
         self.assertEqual((await self.screen.get(f"/states?token={TOKEN}")).status, 200)
 
-    async def test_screen_only_sees_active_entities(self):
+    async def test_screen_only_sees_active_entities_on_its_layout(self):
+        self.publish_screen_layout()
         self.active.set_page("kitchen/morning", ["light.kitchen"])
         resp = await self.screen.get(f"/states?token={TOKEN}")
         states = (await resp.json())["states"]
@@ -237,6 +252,38 @@ class ApiTests(unittest.IsolatedAsyncioTestCase):
             await ws.receive()
             self.assertEqual(ws.close_code, 4401)
 
+    async def test_screen_service_takes_a_json_post_body(self):
+        self.store.save_layout(["kitchen", "morning"], LAYOUT, "")
+        self.store.publish_html(["kitchen", "morning"], "<html></html>")
+        self.store.snapshot_layout(["kitchen", "morning"])
+        self.active.set_page("kitchen/morning", ["light.kitchen"])
+        resp = await self.screen.post(
+            "/service?layout=kitchen/morning", json={"entity_id": "light.kitchen", "service": "toggle"},
+            headers={"Authorization": f"Bearer {TOKEN}"})
+        self.assertEqual(resp.status, 200)
+        self.assertEqual(self.ha.calls[-1], ("light.kitchen", "toggle", {}))
+
+    async def test_post_refuses_a_body_that_is_not_an_object(self):
+        resp = await self.screen.post(f"/service?token={TOKEN}", data="not json",
+                                      headers={"Content-Type": "application/json"})
+        self.assertEqual(resp.status, 400)
+
+    async def test_socket_accepts_the_token_as_first_message(self):
+        async with self.screen.ws_connect("/ws") as ws:
+            await ws.send_json({"type": "auth", "token": TOKEN})
+            first = await ws.receive_json()
+            self.assertEqual(first["type"], "states")
+
+    async def test_socket_with_a_wrong_first_message_is_closed_with_4401(self):
+        ws = await self.screen.ws_connect("/ws")
+        await ws.send_json({"type": "auth", "token": "wrong"})
+        await ws.receive()
+        self.assertEqual(ws.close_code, 4401)
+
+    async def test_status_gives_the_internal_url_for_the_designer(self):
+        resp = await self.editor.get("/api/status", headers=INGRESS)
+        self.assertIn("internal_url", await resp.json())
+
     async def test_socket_gets_states_and_layout_changes(self):
         async with self.screen.ws_connect(f"/ws?token={TOKEN}") as ws:
             first = await ws.receive_json()
@@ -263,16 +310,18 @@ class ApiTests(unittest.IsolatedAsyncioTestCase):
         resp = await self.editor.get("/api/file?path=../secret", headers=INGRESS)
         self.assertEqual(resp.status, 400)
 
-    async def test_status_exposes_the_read_token_to_the_editor(self):
+    async def test_status_never_contains_a_token(self):
         resp = await self.editor.get("/api/status", headers=INGRESS)
-        self.assertEqual((await resp.json())["read_token"], TOKEN)
+        self.assertNotIn("read_token", await resp.json())
 
     async def test_editor_imagedata_is_not_limited_to_active_entities(self):
         resp = await self.editor.get("/api/imagedata?entity=image.qr", headers=INGRESS)
         self.assertEqual(resp.status, 200)
 
     async def test_imagedata_returns_unchanged_for_the_same_hash(self):
-        self.active.set_page("cameras", ["image.qr"])
+        self.publish_screen_layout([{"id": "c1", "type": "haimage", "entity": "image.qr",
+                                     "x": 0, "y": 0, "w": 2, "h": 2}])
+        self.active.set_page("kitchen/morning", ["image.qr"])
         first = await (await self.screen.get(f"/imagedata?entity=image.qr&token={TOKEN}")).json()
         self.assertIn("data_url", first)
         again = await self.screen.get(f"/imagedata?entity=image.qr&hash={first['hash']}&token={TOKEN}")
@@ -280,7 +329,9 @@ class ApiTests(unittest.IsolatedAsyncioTestCase):
 
 
     async def test_image_endpoint_serves_binary_bytes_with_etag(self):
-        self.active.set_page("cameras", ["image.qr"])
+        self.publish_screen_layout([{"id": "c1", "type": "haimage", "entity": "image.qr",
+                                     "x": 0, "y": 0, "w": 2, "h": 2}])
+        self.active.set_page("kitchen/morning", ["image.qr"])
         resp = await self.screen.get(f"/image?entity=image.qr&token={TOKEN}")
         self.assertEqual(resp.status, 200)
         self.assertEqual(resp.headers["Content-Type"], "image/png")
@@ -289,7 +340,9 @@ class ApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(resp.headers["Cache-Control"], "no-cache")
 
     async def test_image_endpoint_answers_304_for_the_same_etag(self):
-        self.active.set_page("cameras", ["image.qr"])
+        self.publish_screen_layout([{"id": "c1", "type": "haimage", "entity": "image.qr",
+                                     "x": 0, "y": 0, "w": 2, "h": 2}])
+        self.active.set_page("kitchen/morning", ["image.qr"])
         first = await self.screen.get(f"/image?entity=image.qr&token={TOKEN}")
         etag = first.headers["ETag"]
         again = await self.screen.get(f"/image?entity=image.qr&token={TOKEN}",
@@ -297,7 +350,9 @@ class ApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(again.status, 304)
 
     async def test_image_endpoint_needs_the_token_and_an_active_entity(self):
-        self.active.set_page("cameras", ["image.qr"])
+        self.publish_screen_layout([{"id": "c1", "type": "haimage", "entity": "image.qr",
+                                     "x": 0, "y": 0, "w": 2, "h": 2}])
+        self.active.set_page("kitchen/morning", ["image.qr"])
         self.assertEqual((await self.screen.get("/image?entity=image.qr")).status, 401)
         self.assertEqual((await self.screen.get(f"/image?entity=light.kitchen&token={TOKEN}")).status, 403)
         self.assertEqual((await self.screen.get(f"/image?entity=image.other&token={TOKEN}")).status, 403)

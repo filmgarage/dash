@@ -13,12 +13,25 @@ class Hub:
         self.active = active
         self.bridge = bridge
         self.clients = {}  # websocket -> set of entity ids, or None for every active entity
+        self.owners = {}  # websocket -> screen token
 
-    def add(self, ws):
+    def add(self, ws, token):
         self.clients[ws] = None
+        self.owners[ws] = token  # the screen token
+
+    async def close_for_token(self, token):
+        """Closes the push channels that use a token, for example after the token was rotated or the screen deleted."""
+        for ws, owner in list(self.owners.items()):
+            if owner == token:
+                self.remove(ws)
+                try:
+                    await ws.close(code=4401)
+                except Exception:  # already gone
+                    pass
 
     def remove(self, ws):
         self.clients.pop(ws, None)
+        self.owners.pop(ws, None)
 
     def subscribe(self, ws, entities):
         self.clients[ws] = set(entities)
@@ -55,4 +68,4 @@ class Hub:
             await asyncio.wait_for(ws.send_json(message), SEND_TIMEOUT)
         except Exception:  # gone, or too slow: drop it so the other screens are not held up
             log.debug("A screen went away or is too slow; dropping it")
-            self.clients.pop(ws, None)
+            self.remove(ws)

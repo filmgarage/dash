@@ -5,6 +5,7 @@ import functools
 import hashlib
 import json
 import logging
+import math
 import re
 import secrets
 import time
@@ -14,6 +15,7 @@ import aiohttp
 from aiohttp import web
 
 from errors import ApiError
+from store import parse_path
 
 log = logging.getLogger("dash.api")
 
@@ -111,24 +113,93 @@ def coerce(value):
     return value
 
 
-def service_data(query):
-    data = {k: coerce(v) for k, v in query.items() if k not in RESERVED_QUERY_KEYS}
-    if not all(DATA_KEY_RE.match(k) for k in data):
-        raise ApiError("invalid service data key", 400)
+# Data keys each service may receive. A service that is not listed receives no data at all.
+SERVICE_DATA_KEYS = {
+    "set_temperature": {"temperature", "target_temp_low", "target_temp_high"},
+    "set_hvac_mode": {"hvac_mode"},
+    "set_preset_mode": {"preset_mode"},
+    "set_fan_mode": {"fan_mode"},
+    "set_value": {"value"},
+    "set_cover_position": {"position"},
+    "set_percentage": {"percentage"},
+    "select_option": {"option"},
+    "turn_on": {"brightness_pct"},
+}
+NUMBER_DATA_KEYS = {"temperature", "target_temp_low", "target_temp_high", "value", "position",
+                    "percentage", "brightness_pct"}
+TEXT_DATA_KEYS = {"hvac_mode", "preset_mode", "fan_mode", "option"}
+MAX_TEXT_LENGTH = 64
+MAX_IDS = 100  # entities in one states request or one subscription
+MAX_SCREENS = 20  # screens with an open push channel at the same time
+MAX_WS_MESSAGE = 65536  # bytes in one message from a screen
+
+
+def service_data(query, service):
+    """The data of a service call, only for the keys this service may receive (contract 12.3). Text keys are kept
+    as typed, so an option named \"1\" stays text."""
+    allowed = SERVICE_DATA_KEYS.get(service, set())
+    data = {}
+    for key, raw in query.items():
+        if key in RESERVED_QUERY_KEYS:
+            continue
+        if key not in allowed:
+            raise ApiError("this service does not take that data", 400)
+        if key in NUMBER_DATA_KEYS:
+            value = coerce(raw)
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+                raise ApiError("data must be a number", 400)
+        elif key in TEXT_DATA_KEYS:
+            value = raw
+            if not raw or len(raw) > MAX_TEXT_LENGTH:
+                raise ApiError("data is empty or too long", 400)
+        data[key] = value
     return data
 
 
-def check_screen_token(request):
-    """Raises unless the request carries the read token (query parameter or Bearer header)."""
-    token = request.app["options"]["read_token"]
-    if not token:
-        raise ApiError("read token not configured", 503)
-    given = request.query.get("token", "")
+@web.middleware
+async def security_headers(request, handler):
+    """No referrer leaks the token of a page, and browsers do not guess content types."""
+    response = await handler(request)
+    if not response.prepared:
+        response.headers.setdefault("Referrer-Policy", "no-referrer")
+        response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    return response
+
+
+def request_token(request):
+    """The token in the Authorization header (preferred) or the token query parameter, or ''."""
     header = request.headers.get("Authorization", "")
     if header.startswith("Bearer "):
-        given = header[len("Bearer "):]
-    if not given or not secrets.compare_digest(given.encode(), token.encode()):
+        return header[len("Bearer "):]
+    return request.query.get("token", "")
+
+
+def screen_scope(request):
+    """The screen record for the token of the request (Bearer header or token query parameter). 401 otherwise.
+    The record limits the request to its layout (contract 9.0)."""
+    given = request_token(request)
+    record = request.app["screens"].find_by_token(given) if given else None
+    if record is None:
         raise ApiError("unauthorized", 401)
+    return record
+
+
+def scoped_entities(app, scope):
+    """The entities a screen may use: the published entities of its layout that are monitored."""
+    return set(app["store"].published_entities(parse_path(scope["layout"]))) & set(app["active"].entities)
+
+
+async def call_params(request):
+    """The parameters of a request: the query string, and for POST also a JSON object body. Non-text values
+    from the body are written as JSON text, so the same checks apply to both ways of calling."""
+    params = dict(request.query)
+    if request.method == "POST" and request.can_read_body:
+        body = await json_body(request)
+        if body is None:
+            raise ApiError("body must be a JSON object", 400)
+        for key, value in body.items():
+            params[key] = value if isinstance(value, str) else json.dumps(value)
+    return params
 
 
 MAX_CACHED_PICTURES = 32
@@ -142,18 +213,21 @@ async def picture_entry(app, entity_id):
         raise ApiError("entity not found", 404)
     stamp = s.get("last_updated")
     cache = app["images"]
-    cached = cache.get(entity_id)
-    if cached is None or cached["stamp"] != stamp:
-        picture = (s.get("attributes") or {}).get("entity_picture")
-        if not picture:
-            raise ApiError("entity has no picture", 404)
-        data, content_type = await ha.picture(picture)
-        cached = {"stamp": stamp, "hash": hashlib.sha256(data).hexdigest(),
-                  "data": data, "content_type": content_type}
-        cache.pop(entity_id, None)
-        cache[entity_id] = cached
-        while len(cache) > MAX_CACHED_PICTURES:  # oldest first; bounds the memory a screen can use
-            cache.pop(next(iter(cache)))
+    # One download per entity at a time: other requests wait and then find the picture in the cache.
+    lock = app["picture_locks"].setdefault(entity_id, asyncio.Lock())
+    async with lock:
+        cached = cache.get(entity_id)
+        if cached is None or cached["stamp"] != stamp:
+            picture = (s.get("attributes") or {}).get("entity_picture")
+            if not picture:
+                raise ApiError("entity has no picture", 404)
+            data, content_type = await ha.picture(picture)
+            cached = {"stamp": stamp, "hash": hashlib.sha256(data).hexdigest(),
+                      "data": data, "content_type": content_type}
+            cache.pop(entity_id, None)
+            cache[entity_id] = cached
+            while len(cache) > MAX_CACHED_PICTURES:  # oldest first; bounds the memory a screen can use
+                cache.pop(next(iter(cache)))
     return cached
 
 

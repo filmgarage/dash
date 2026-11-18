@@ -33,8 +33,12 @@ FORBIDDEN = [
 BUNDLE_LIST = re.compile(r'<script type="__bundler/ext_resources">.*?</script>', re.S)
 
 
+# The editor builds the address it shows for a screen with this fallback. It is text the owner copies, never a request.
+SCREEN_ADDRESS_FALLBACK = "(this.pubPrefix || '/dash/')"
+
+
 def find_problems(text):
-    text = BUNDLE_LIST.sub("", text)
+    text = BUNDLE_LIST.sub("", text).replace(SCREEN_ADDRESS_FALLBACK, "")
     return [label for pattern, label in FORBIDDEN if pattern.search(text)]
 
 

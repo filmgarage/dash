@@ -1,4 +1,5 @@
 """Screen API on port 8092. Every route except health needs the read token. No CORS headers are sent."""
+import asyncio
 import json
 import logging
 
@@ -8,11 +9,13 @@ from errors import ApiError
 from ha_bridge import public_view
 from store import checked, parse_path
 from settings import UI_DIR
-from web_common import (SERVICE_NAME_RE, check_screen_token, handle_errors, is_allowed, json_etag,
-                        picture_entry, picture_http, picture_response, service_data)
+from web_common import (MAX_IDS, MAX_SCREENS, MAX_WS_MESSAGE, SERVICE_NAME_RE, call_params, handle_errors,
+                        is_allowed, json_etag, picture_entry, picture_http, picture_response, request_token,
+                        screen_scope, scoped_entities, service_data)
 
 log = logging.getLogger("dash.screen")
 WS_CLOSE_UNAUTHORIZED = 4401
+WS_CLOSE_TOO_MANY = 1013  # "try again later": the screen limit is reached
 
 
 @handle_errors
@@ -22,33 +25,41 @@ async def health(request):
 
 @handle_errors
 async def states(request):
-    check_screen_token(request)
+    scope = screen_scope(request)
     app = request.app
-    active = app["active"].entities
-    ids = [i for i in request.query.get("ids", "").split(",") if i] or sorted(active)
+    allowed = scoped_entities(app, scope)
+    ids = ([i for i in request.query.get("ids", "").split(",") if i] or sorted(allowed))[:MAX_IDS]
     out = {}
     for entity_id in ids:
-        if entity_id in active and entity_id in app["bridge"].states:
+        if entity_id in allowed and entity_id in app["bridge"].states:
             out[entity_id] = public_view(entity_id, app["bridge"].states[entity_id])
     return json_etag(request, {"states": out})
 
 
 @handle_errors
 async def layout_load(request):
-    check_screen_token(request)
+    scope = screen_scope(request)
     parts = checked(parse_path(request.query.get("path")))
+    if parts != parse_path(scope["layout"]):
+        raise ApiError("this screen shows another layout", 403)
     return web.json_response({"layout": request.app["store"].load_published(parts)})
 
 
 @handle_errors
 async def service(request):
-    check_screen_token(request)
+    """GET (kept for older designers) or POST (contract 8.9): the parameters come from the query string, and for
+    POST also from a JSON object body."""
+    scope = screen_scope(request)
     app = request.app
     options = app["options"]
     store = app["store"]
-    entity_id = request.query.get("entity_id", "")
-    name = request.query.get("service", "")
-    layout = parse_path(request.query.get("layout"))
+    params = await call_params(request)
+    if params.get("layout") not in (None, "", scope["layout"]):
+        raise ApiError("this screen shows another layout", 403)
+    params["layout"] = scope["layout"]
+    entity_id = params.get("entity_id", "")
+    name = params.get("service", "")
+    layout = parse_path(params.get("layout"))
     if layout is None:
         raise ApiError("this token needs a valid layout", 403)
     if not is_allowed(options, entity_id):
@@ -60,7 +71,7 @@ async def service(request):
     if entity_id not in store.published_entities(layout):
         raise ApiError("entity is not on this layout", 403)
     app["ha"].require_token()
-    data = service_data(request.query)
+    data = service_data(params, name)
     s = await app["ha"].state(entity_id)
     if s is None:
         raise ApiError("entity not found", 404)
@@ -72,11 +83,11 @@ async def service(request):
 
 @handle_errors
 async def imagedata(request):
-    check_screen_token(request)
+    scope = screen_scope(request)
     app = request.app
     entity_id = request.query.get("entity", "")
     if not entity_id.startswith("image.") or not is_allowed(app["options"], entity_id) \
-            or entity_id not in app["active"].entities:
+            or entity_id not in scoped_entities(app, scope):
         raise ApiError("no allowed image entity", 403)
     app["ha"].require_token()
     return await picture_response(app, entity_id, request.query.get("hash", ""))
@@ -85,30 +96,46 @@ async def imagedata(request):
 @handle_errors
 async def image(request):
     """The picture as plain image bytes, with an ETag. The browser asks again with If-None-Match."""
-    check_screen_token(request)
+    scope = screen_scope(request)
     app = request.app
     entity_id = request.query.get("entity", "")
     if not entity_id.startswith("image.") or not is_allowed(app["options"], entity_id) \
-            or entity_id not in app["active"].entities:
+            or entity_id not in scoped_entities(app, scope):
         raise ApiError("no allowed image entity", 403)
     app["ha"].require_token()
     return picture_http(request, await picture_entry(app, entity_id))
 
 
-async def live(request):
-    ws = web.WebSocketResponse(heartbeat=30)
-    try:
-        check_screen_token(request)
-    except ApiError:
-        await ws.prepare(request)
-        await ws.close(code=WS_CLOSE_UNAUTHORIZED)
-        return ws
+AUTH_TIMEOUT = 10  # seconds a screen has to send its auth message (contract 8.9)
 
+
+async def live(request):
+    """Push channel. The token comes in the URL or Bearer header, or in a first message {"type": "auth", "token": ...}
+    (contract 8.9). A screen token limits the channel to the entities of its layout (contract 9.0)."""
+    ws = web.WebSocketResponse(heartbeat=30, max_msg_size=MAX_WS_MESSAGE)
     app = request.app
     hub = app["hub"]
-    await ws.prepare(request)
-    hub.add(ws)
-    await ws.send_json({"type": "states", "states": hub.snapshot()})
+    if request_token(request) or request.query.get("token"):
+        try:
+            scope = screen_scope(request)
+        except ApiError:
+            await ws.prepare(request)
+            await ws.close(code=WS_CLOSE_UNAUTHORIZED)
+            return ws
+        await ws.prepare(request)
+    else:
+        await ws.prepare(request)
+        ok, scope = await _authenticate_by_message(app, ws)
+        if not ok:
+            await ws.close(code=WS_CLOSE_UNAUTHORIZED)
+            return ws
+    if len(hub.clients) >= MAX_SCREENS:
+        await ws.close(code=WS_CLOSE_TOO_MANY)
+        return ws
+    allowed = scoped_entities(app, scope)
+    hub.add(ws, scope["token"])
+    hub.subscribe(ws, allowed)
+    await ws.send_json({"type": "states", "states": hub.snapshot(allowed)})
     try:
         async for msg in ws:
             if msg.type != WSMsgType.TEXT:
@@ -121,13 +148,33 @@ async def live(request):
             if not isinstance(data, dict) or data.get("type") != "subscribe":
                 continue
             entities = data.get("entities")
-            wanted = {e for e in (entities if isinstance(entities, list) else [])
-                      if isinstance(e, str) and e in app["active"].entities}
+            entities = entities[:MAX_IDS] if isinstance(entities, list) else []
+            wanted = {e for e in entities if isinstance(e, str) and e in allowed}
             hub.subscribe(ws, wanted)
             await ws.send_json({"type": "states", "states": hub.snapshot(wanted)})
     finally:
         hub.remove(ws)
     return ws
+
+
+async def _authenticate_by_message(app, ws):
+    """Waits for the first message and checks its screen token. Returns (ok, record); ok is False when the message
+    is missing, late, or the token is not a screen token."""
+    try:
+        msg = await ws.receive(timeout=AUTH_TIMEOUT)
+    except asyncio.TimeoutError:
+        return False, None
+    if msg.type != WSMsgType.TEXT:
+        return False, None
+    try:
+        data = json.loads(msg.data)
+    except ValueError:
+        return False, None
+    if not isinstance(data, dict) or data.get("type") != "auth":
+        return False, None
+    given = data.get("token")
+    record = app["screens"].find_by_token(given) if isinstance(given, str) and given else None
+    return record is not None, record
 
 
 @handle_errors
@@ -152,6 +199,7 @@ def add_routes(app):
     router.add_get("/states", states)
     router.add_get("/layout_load", layout_load)
     router.add_get("/service", service)
+    router.add_post("/service", service)
     router.add_get("/imagedata", imagedata)
     router.add_get("/image", image)
     router.add_get("/ws", live)

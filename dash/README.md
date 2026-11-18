@@ -1,4 +1,4 @@
-# DASH HA App (v0.7.5)
+# DASH HA App (v0.8.1)
 
 DASH is a Home Assistant app for simple, light web dashboards on screens such as a Fully Kiosk photo frame or a
 wall tablet. You design a layout in the DASH editor, publish it, and the screen shows it with live values from
@@ -38,13 +38,19 @@ short version:
   or port 8092 to a reverse proxy.
 - The published pages, skins and images under `/dash/` need no token. They contain no data, but anyone on your
   local network who can reach port 8092 can open them. Do not put private information in layout names, titles or labels.
-- The read token protects the data (states, pictures, service calls). Use a long random value and do not reuse it.
-  It is part of the screen URL, so treat that URL as a secret.
+- Every screen has its own token (`autotoken_…`), created in the designer. A screen token reaches only the layout it
+  was made for. There is no shared token. The token is part of the screen URL, so treat that URL as a secret, and
+  rotate the token if a screen is lost.
 - Keep `read_services` short. Leave out `lock`, `unlock` and the alarm services on shared screens.
 - A screen can start any script, button or scene it is allowed to use, and a script can do more than its name says.
   A script that switches a light can also switch a lock or an alarm. Before you put a script or a button on a layout,
   read what it does in Home Assistant. Do not put on a screen a control that you would not want anyone in the room to press.
 - The traffic on port 8092 is plain `http`. Use it only on a network you trust.
+- **Accepted risk:** the HA App does not check what a script or a button does. A screen can run a script or a button
+  that is allowed, and that script can unlock a door or switch an alarm, even though the HA App blocks `lock.unlock`
+  itself. The owner has accepted this risk. The allow and exclude lists limit which entities a screen sees, not what
+  those entities do inside Home Assistant. Leave `script`, `button` and `input_button` out of the allow lists unless
+  you need them, and check every script before you put it on a screen.
 
 ## Disclaimer
 
@@ -60,7 +66,6 @@ Test it with non-critical devices first.
 
 | Option | Default | Meaning |
 |---|---|---|
-| `read_token` | empty | Token for screens. Required before any screen can load data. |
 | `log_level` | `info` | `debug`, `info`, `warning` or `error`. |
 | `screen_address_mode` | `ip` | `ip`: screens use the LAN address of Home Assistant. `url`: screens use the address the editor was opened with, such as a DNS name. |
 | `screen_ip` | empty | The LAN address for screens. Empty means the HA App detects it, or the designer asks for it the first time. |
@@ -90,8 +95,10 @@ Changes take effect after the HA App restarts. A missing option uses its default
 
 Create the read token with a password generator and use a value that you do not use anywhere else.
 
-The HA App reads the network address of the Home Assistant host from the Supervisor (`hassio_api`). It uses that
-only to build screen URLs; it changes no network setting.
+The HA App reads the screen address from the entity `sensor.local_ip`. That entity comes from the Local IP Address
+integration: add it under Settings > Devices & services. Without it, set the address with the `screen_ip` option or
+in the designer. The address is read when the HA App starts; restart the HA App after you add the integration.
+The HA App uses it only to build screen URLs and changes no network setting.
 
 ## Setting up a screen
 
@@ -99,8 +106,11 @@ A screen needs no login. Its start URL contains everything it needs. Replace `HA
 Home Assistant:
 
 ```text
-http://HA_IP:8092/dash/viewer.html?layout=kitchen/morning&skin=night&token=YOUR_READ_TOKEN
+http://HA_IP:8092/dash/viewer.html?layout=kitchen/morning&skin=night#token=YOUR_SCREEN_TOKEN
 ```
+
+The token is in the part after `#`, so it is not sent to the server in the request line. Create the screen and its token
+in the designer.
 
 | Part | Meaning |
 |---|---|
