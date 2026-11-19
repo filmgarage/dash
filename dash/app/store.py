@@ -1,4 +1,4 @@
-"""Layouts (add-on data folder) and published files (Home Assistant www folder)."""
+"""Layouts (App data folder) and published files (Home Assistant www folder)."""
 import base64
 import binascii
 import json
@@ -16,6 +16,7 @@ IMAGE_NAME_RE = re.compile(r"^[a-z0-9_.-]{1,64}$")
 SKIN_DEFAULT = "_default"
 MAX_DEPTH = 4
 MAX_TILES = 200
+MAX_ENTITIES = 100  # different entities in one layout; the same limit applies to state requests and subscriptions
 MAX_HTML_BYTES = 2_000_000
 MAX_SKIN_BYTES = 256_000
 MAX_IMAGE_BYTES = 700_000
@@ -61,6 +62,8 @@ def validate_layout(body):
         for key in ("x", "y", "w", "h"):
             if not isinstance(tile.get(key, 0), int):
                 return f"{key} must be an integer"
+    if len({str(tile.get("entity")) for tile in tiles if isinstance(tile, dict) and tile.get("entity")}) > MAX_ENTITIES:
+        return f"a layout may use at most {MAX_ENTITIES} different entities"
     return None
 
 

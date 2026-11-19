@@ -43,6 +43,15 @@ class OptionsTests(unittest.TestCase):
         opts = options_from({"allow_entities": ["light.kitchen"], "exclude_entities": ["light.kitchen"]})
         self.assertFalse(is_allowed(opts, "light.kitchen"))
 
+    def test_allow_domains_replaces_the_defaults(self):
+        options = options_from({"allow_domains": ["light"]})
+        self.assertEqual(options["allow_domains"], {"light"})
+
+    def test_empty_allow_domains_uses_the_defaults(self):
+        options = options_from({"allow_domains": []})
+        self.assertIn("light", options["allow_domains"])
+        self.assertIn("sensor", options["allow_domains"])
+
     def test_allow_read_services_adds_to_defaults(self):
         opts = options_from({"allow_read_services": ["custom_action"], "exclude_read_services": ["toggle"]})
         self.assertIn("custom_action", opts["read_services"])

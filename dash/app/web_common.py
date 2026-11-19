@@ -1,5 +1,6 @@
 """Helpers shared by the editor API and the screen API."""
 import asyncio
+from contextlib import asynccontextmanager
 import base64
 import functools
 import hashlib
@@ -15,7 +16,8 @@ import aiohttp
 from aiohttp import web
 
 from errors import ApiError
-from store import parse_path
+from store import MAX_ENTITIES, parse_path
+from app_keys import ACTIVE, HA, IMAGES, PICTURE_LOCKS, PICTURE_SLOTS, SCREENS, STORE
 
 log = logging.getLogger("dash.api")
 
@@ -52,9 +54,11 @@ def handle_errors(handler):
                 _last_unreachable_log["at"] = now
                 log.warning("%s: Home Assistant not reachable (%s)", handler.__name__, type(err).__name__)
             return error("Home Assistant not reachable", 502)
-        except Exception as err:
-            log.exception("%s failed", handler.__name__)
-            return error(f"{type(err).__name__}: {err}", 500)
+        except Exception:
+            # The full traceback goes to the log. The client gets only a reference to find it again.
+            reference = secrets.token_hex(4)
+            log.exception("%s failed (reference %s)", handler.__name__, reference)
+            return error(f"Internal error (reference {reference})", 500)
     return wrapper
 
 
@@ -129,7 +133,7 @@ NUMBER_DATA_KEYS = {"temperature", "target_temp_low", "target_temp_high", "value
                     "percentage", "brightness_pct"}
 TEXT_DATA_KEYS = {"hvac_mode", "preset_mode", "fan_mode", "option"}
 MAX_TEXT_LENGTH = 64
-MAX_IDS = 100  # entities in one states request or one subscription
+MAX_IDS = MAX_ENTITIES  # entities in one states request or one subscription; the same as a layout may use
 MAX_SCREENS = 20  # screens with an open push channel at the same time
 MAX_WS_MESSAGE = 65536  # bytes in one message from a screen
 
@@ -178,7 +182,7 @@ def screen_scope(request):
     """The screen record for the token of the request (Bearer header or token query parameter). 401 otherwise.
     The record limits the request to its layout (contract 9.0)."""
     given = request_token(request)
-    record = request.app["screens"].find_by_token(given) if given else None
+    record = request.app[SCREENS].find_by_token(given) if given else None
     if record is None:
         raise ApiError("unauthorized", 401)
     return record
@@ -186,7 +190,7 @@ def screen_scope(request):
 
 def scoped_entities(app, scope):
     """The entities a screen may use: the published entities of its layout that are monitored."""
-    return set(app["store"].published_entities(parse_path(scope["layout"]))) & set(app["active"].entities)
+    return set(app[STORE].published_entities(parse_path(scope["layout"]))) & set(app[ACTIVE].entities)
 
 
 async def call_params(request):
@@ -202,32 +206,55 @@ async def call_params(request):
     return params
 
 
-MAX_CACHED_PICTURES = 32
+MAX_CACHED_PICTURES = 32  # at most this many pictures in the cache
+MAX_CACHE_BYTES = 32 * 1024 * 1024  # total bytes of picture data in the cache; least recently used go first
+MAX_CONCURRENT_DOWNLOADS = 4  # pictures fetched from Home Assistant at the same time
+
+
+def cache_bytes(cache):
+    return sum(len(item["data"]) for item in cache.values())
+
+
+@asynccontextmanager
+async def entity_lock(app, entity_id):
+    """One download per entity at a time. The lock entry is removed when the last user leaves, so the dictionary
+    does not grow with every entity ever requested."""
+    locks = app[PICTURE_LOCKS]
+    entry = locks.get(entity_id)
+    if entry is None:  # no await between these lines, so two requests cannot create two locks for one entity
+        entry = locks[entity_id] = {"lock": asyncio.Lock(), "users": 0}
+    entry["users"] += 1
+    try:
+        async with entry["lock"]:
+            yield
+    finally:
+        entry["users"] -= 1
+        if entry["users"] == 0 and locks.get(entity_id) is entry:
+            del locks[entity_id]
 
 
 async def picture_entry(app, entity_id):
     """The picture of an image entity as bytes, cached until Home Assistant reports a new last_updated."""
-    ha = app["ha"]
+    ha = app[HA]
     s = await ha.state(entity_id)
     if s is None:
         raise ApiError("entity not found", 404)
     stamp = s.get("last_updated")
-    cache = app["images"]
-    # One download per entity at a time: other requests wait and then find the picture in the cache.
-    lock = app["picture_locks"].setdefault(entity_id, asyncio.Lock())
-    async with lock:
-        cached = cache.get(entity_id)
+    cache = app[IMAGES]
+    async with entity_lock(app, entity_id):
+        cached = cache.pop(entity_id, None)  # popped and put back below, so a hit becomes the most recent entry
         if cached is None or cached["stamp"] != stamp:
             picture = (s.get("attributes") or {}).get("entity_picture")
             if not picture:
                 raise ApiError("entity has no picture", 404)
-            data, content_type = await ha.picture(picture)
+            async with app[PICTURE_SLOTS]:
+                data, content_type = await ha.picture(picture)
             cached = {"stamp": stamp, "hash": hashlib.sha256(data).hexdigest(),
                       "data": data, "content_type": content_type}
-            cache.pop(entity_id, None)
-            cache[entity_id] = cached
-            while len(cache) > MAX_CACHED_PICTURES:  # oldest first; bounds the memory a screen can use
-                cache.pop(next(iter(cache)))
+        cache[entity_id] = cached
+        # Evict the least recently used pictures until both the count and the byte budget are met.
+        while len(cache) > MAX_CACHED_PICTURES or (len(cache) > 1 and cache_bytes(cache) > MAX_CACHE_BYTES):
+            cache.pop(next(iter(cache)))
     return cached
 
 

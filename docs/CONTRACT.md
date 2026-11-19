@@ -42,12 +42,12 @@ In this contract, "read token" means the **screen token** of that screen from th
 
 HA App 0.7.7. The designer must adopt these in its next version. GET keeps working for now and will be removed in a later contract.
 
-- **Service calls by POST.** `service` (screen server) and `api/service` (editor) accept `POST`. The parameters come from
+- **Service calls by POST.** `service` (screen server) and `api/service` (editor) accept `POST` only (GET is refused since 0.8.7). The parameters come from
   the query string, or from a JSON object body (`Content-Type: application/json`). A body that is not a JSON object gets `400`.
-  Send the token as `Authorization: Bearer <read token>` on the screen server, not in the URL. The same rules as
+  Send the token as `Authorization: Bearer <screen token>` on the screen server, not in the URL. The same rules as
   section 12.3 and 0g apply to both ways of calling.
 - **Token in a message on the push channel.** A screen may connect to `ws` **without** a token in the URL. The first message
-  must then be `{"type": "auth", "token": "<read token>"}`, within 10 seconds. A wrong, missing or late first message closes
+  must then be `{"type": "auth", "token": "<screen token>"}`, within 10 seconds. A wrong, missing or late first message closes
   the connection with code `4401`. A token in the URL or the `Authorization` header still works as before (4.1).
 - **`internal_url` in `api/status`** (3.1, Ingress only): the `internal_url` of the Home Assistant configuration, or `null`
   when the user has not set it. The designer may show it as the address of Home Assistant.
@@ -213,7 +213,7 @@ All paths are relative to the editor page. No token. Same parameters and respons
 | GET | `api/states` | `ids` | - | current states of **any allowed entity**, not only monitored ones, from the live state table (12.4); `ETag` and `304` (4.3) |
 | GET | `api/image` | `entity` | - | picture of **any allowed** image entity as binary data, for `<img src>` (3.7) |
 | GET | `api/imagedata` | `entity`, `hash` (optional) | - | picture of **any allowed** image entity as base64, for the editor preview (7.1 section 2.3) |
-| GET, POST | `api/service` | `entity_id`, `service` (or JSON body for POST) | - | run an action for the editor preview (7.1 section 2.4, 0h) |
+| POST | `api/service` | `entity_id`, `service` (query string and JSON body) | - | run an action for the editor preview (7.1 section 2.4, 0h) |
 | GET | `api/file` | `path` | - | a published file, for previews (3.3) |
 | GET | `api/layouts` | - | - | tree of layouts and folders (7.1 section 4.1) |
 | GET | `api/layout_load` | `path` | - | load a draft layout (7.1 section 4.2) |
@@ -324,7 +324,7 @@ Two kinds of access:
 | GET | `/dash/<path>` | - | none | published pages, `viewer.html`, skins and images (section 2). No directory listing: `403` or `404` for a folder. |
 | GET | `states` | `ids`, `token` | read token | states of **monitored** entities only (others are left out, not an error); `ETag` and `304` (4.3) |
 | GET | `layout_load` | `path`, `token` | read token | the **published version** of a layout (`404` if not published) |
-| GET, POST | `service` | `entity_id`, `service`, `layout` (or JSON body for POST) | read or screen token | run an action; the entity must be on the named published layout (7.1 section 1.2, 0h, 0i) |
+| POST | `service` | `entity_id`, `service`, `layout` (query string and JSON body) | read or screen token | run an action; the entity must be on the named published layout (7.1 section 1.2, 0h, 0i) |
 | GET | `image` | `entity`, `token` | read token | picture of a monitored image entity as binary data, with `ETag` and `304` (4.3) |
 | GET | `imagedata` | `entity`, `hash` (optional), `token` | read token | picture of a monitored image entity as base64 (7.1 section 2.3); not used for pictures on a screen in 8.7 |
 | WS | `ws` | `token` | read token | push updates (section 4.1) |

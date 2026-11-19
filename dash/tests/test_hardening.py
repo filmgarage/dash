@@ -1,3 +1,4 @@
+from app_keys import ACTIVE, APP_SETTINGS_PATH, BRIDGE, DETECTED_IP, HA, HUB, IMAGES, INTERNAL_URL, OPTIONS, PICTURE_LOCKS, PICTURE_SLOTS, SAVED, SCREENS, STORE
 import asyncio
 import os
 import sys
@@ -59,12 +60,12 @@ class FakeHa:
 class PictureCacheTests(unittest.TestCase):
     def test_the_picture_cache_stays_bounded(self):
         async def scenario():
-            app = {"ha": FakeHa(0), "images": {}, "picture_locks": {}}
+            app = {HA: FakeHa(0), IMAGES: {}, PICTURE_LOCKS: {}, PICTURE_SLOTS: asyncio.Semaphore(4)}
             for i in range(MAX_CACHED_PICTURES + 20):
                 await picture_entry(app, f"image.n{i}")
-            self.assertEqual(len(app["images"]), MAX_CACHED_PICTURES)
-            self.assertIn(f"image.n{MAX_CACHED_PICTURES + 19}", app["images"])
-            self.assertNotIn("image.n0", app["images"])
+            self.assertEqual(len(app[IMAGES]), MAX_CACHED_PICTURES)
+            self.assertIn(f"image.n{MAX_CACHED_PICTURES + 19}", app[IMAGES])
+            self.assertNotIn("image.n0", app[IMAGES])
         asyncio.run(scenario())
 
 

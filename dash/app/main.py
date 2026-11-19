@@ -1,4 +1,4 @@
-"""DASH add-on: the editor (Home Assistant Ingress, port 8099) and the screen API (port 8092)."""
+"""DASH App: the editor (Home Assistant Ingress, port 8099) and the screen API (port 8092)."""
 import asyncio
 import signal
 import logging
@@ -9,6 +9,8 @@ from aiohttp import ClientSession, web
 import editor_api
 import screen_api
 from active import ActiveSet
+from app_keys import (ACTIVE, APP_SETTINGS_PATH, BRIDGE, DETECTED_IP, HA, HUB, IMAGES, INTERNAL_URL, OPTIONS,
+                      PICTURE_LOCKS, PICTURE_SLOTS, SAVED, SCREENS, STORE)
 from ha import Supervisor
 from ha_bridge import HaBridge
 from forecasts import Forecasts
@@ -19,13 +21,13 @@ from settings import (ACTIVE_PATH, APP_VERSION, DATA_DIR, HA_WS_URL, LAYOUT_DIR,
 from network import detect_lan_ip, load_saved, read_internal_url
 from screens import ScreenStore
 from store import Store
-from web_common import build_app, ingress_only, is_allowed, security_headers
+from web_common import MAX_CONCURRENT_DOWNLOADS, build_app, ingress_only, is_allowed, security_headers
 
 log = logging.getLogger("dash")
 
 
 def log_environment():
-    log.info("DASH add-on version %s", APP_VERSION)
+    log.info("DASH App version %s", APP_VERSION)
     log.info("Supervisor environment variables present: %s",
              sorted(k for k in os.environ if "SUPERVISOR" in k or k.startswith("HASS")) or "none")
     log.debug("All environment variable names: %s", sorted(os.environ))
@@ -36,7 +38,7 @@ def log_environment():
     log.info("SUPERVISOR_TOKEN available: %s", bool(SUPERVISOR_TOKEN))
     if not SUPERVISOR_TOKEN:
         log.error("SUPERVISOR_TOKEN is missing; check that homeassistant_api: true is in config.yaml "
-                  "and rebuild the add-on")
+                  "and rebuild the App")
 
 
 async def main():
@@ -55,55 +57,77 @@ async def main():
         else:
             active.remove_page(page)
 
-    session = ClientSession()
-    ha = Supervisor(SUPERVISOR_URL, SUPERVISOR_TOKEN, session)
-    internal_url = await read_internal_url(ha)
-    detected_ip = await detect_lan_ip(ha, internal_url)
-    bridge = HaBridge(HA_WS_URL, SUPERVISOR_TOKEN, active)
-    hub = Hub(active, bridge)
-    forecasts = Forecasts(ha, bridge.states, active, hub.broadcast)
+    # Background tasks are kept in one set. A task removes itself when it ends, and its exception is logged.
+    background = set()
 
-    async def on_bridge_state(entity_id, view):
-        await hub.broadcast(entity_id, view)
-        forecasts.schedule(entity_id)
+    def finished(task):
+        background.discard(task)
+        if not task.cancelled() and task.exception() is not None:
+            log.error("Background task failed: %s", task.exception())
 
-    bridge.on_state = on_bridge_state
-    background = [asyncio.ensure_future(forecasts.run())]
+    def track(awaitable):
+        task = asyncio.ensure_future(awaitable)
+        background.add(task)
+        task.add_done_callback(finished)
+        return task
 
-    def on_active_changed(added, removed):
-        bridge.active_changed()
-        if removed:
-            background.append(asyncio.ensure_future(hub.announce_removed(removed)))
-
-    active.listeners.append(on_active_changed)
-
-    state = {"options": options, "store": store, "active": active, "bridge": bridge,
-             "hub": hub, "ha": ha, "images": {}, "picture_locks": {}, "detected_ip": detected_ip,
-             "internal_url": internal_url, "screens": ScreenStore(DATA_DIR / "screens.json"),
-             "settings_path": SETTINGS_PATH, "saved": load_saved(SETTINGS_PATH)}
-    editor = build_app(editor_api.add_routes, state, [ingress_only, security_headers])
-    screens = build_app(screen_api.add_routes, state, [security_headers])
+    session = None
     runners = []
-    for app, port in ((editor, UI_PORT), (screens, SCREEN_PORT)):
-        runner = web.AppRunner(app)
-        runners.append(runner)
-        await runner.setup()
-        await web.TCPSite(runner, "0.0.0.0", port).start()
-    log.info("DASH started: editor on %d, screens on %d", UI_PORT, SCREEN_PORT)
-
     try:
+        # Everything below is inside try/finally: a failure at any step still closes what was already created.
+        session = ClientSession()
+        ha = Supervisor(SUPERVISOR_URL, SUPERVISOR_TOKEN, session)
+        internal_url = await read_internal_url(ha)
+        detected_ip = await detect_lan_ip(ha, internal_url)
+        bridge = HaBridge(HA_WS_URL, SUPERVISOR_TOKEN, active)
+        hub = Hub(active, bridge)
+        forecasts = Forecasts(ha, bridge.states, active, hub.broadcast)
+
+        async def on_bridge_state(entity_id, view):
+            await hub.broadcast(entity_id, view)
+            forecasts.schedule(entity_id)
+
+        bridge.on_state = on_bridge_state
+        track(forecasts.run())
+
+        def on_active_changed(added, removed):
+            bridge.active_changed()
+            if removed:
+                track(hub.announce_removed(removed))
+
+        active.listeners.append(on_active_changed)
+
+        state = {OPTIONS: options, STORE: store, ACTIVE: active, BRIDGE: bridge,
+                 HUB: hub, HA: ha, IMAGES: {}, PICTURE_LOCKS: {},
+                 PICTURE_SLOTS: asyncio.Semaphore(MAX_CONCURRENT_DOWNLOADS),
+                 DETECTED_IP: detected_ip, INTERNAL_URL: internal_url,
+                 SCREENS: ScreenStore(DATA_DIR / "screens.json"),
+                 APP_SETTINGS_PATH: SETTINGS_PATH, SAVED: load_saved(SETTINGS_PATH)}
+        editor = build_app(editor_api.add_routes, state, [ingress_only, security_headers])
+        screens = build_app(screen_api.add_routes, state, [security_headers])
+        for app, port in ((editor, UI_PORT), (screens, SCREEN_PORT)):
+            runner = web.AppRunner(app)
+            runners.append(runner)
+            await runner.setup()
+            await web.TCPSite(runner, "0.0.0.0", port).start()
+        log.info("DASH started: editor on %d, screens on %d", UI_PORT, SCREEN_PORT)
+
         if SUPERVISOR_TOKEN:
             await bridge.run()
         else:
             await asyncio.Event().wait()
     finally:
         # Shutdown: stop the background work, then the web servers, then the HTTP session.
-        for task in background:
+        for task in list(background):
             task.cancel()
         await asyncio.gather(*background, return_exceptions=True)
         for runner in runners:
-            await runner.cleanup()
-        await session.close()
+            try:
+                await runner.cleanup()
+            except Exception:  # a runner that failed to start must not stop the others from closing
+                log.debug("Runner cleanup failed", exc_info=True)
+        if session is not None:
+            await session.close()
 
 
 async def run_until_stopped():

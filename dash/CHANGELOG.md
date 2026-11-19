@@ -1,13 +1,19 @@
 # Changelog
 
-## 0.8.5: viewer 20, designer 1.3 (contract 9.0)
+## 0.8.7: viewer 20, designer 1.3 (contract 9.0)
 
-Add-on 0.8.5 ships viewer 20 (`app/ui/viewer.html`, previously viewer 19) and the designer's
-editor 1.3 (`app/ui/index.html`, previously 1.2). The contract stays at 9.0.
+Security and reliability review. No change for the designer or the viewer; the contract is unchanged. The screens
+now accept only POST for service calls, so any client that sent a GET to `service` must use POST.
 
-- Viewer: alarm panels get a popup with arm home, arm away and disarm buttons. The popup works only
-  when alarm panels are allowed in the HA App options and the alarm services are allowed.
-- Viewer: an alarm code, when the panel requires one, cannot be sent yet. The server does not pass it on.
-- Editor: shows a note when the layout is not published, and a note when other screens use the same layout.
-- Editor: updated to the designer's 1.3 package. The favicon is not part of the package and is kept.
-- Add-on version raised to 0.8.5.
+- Service calls are POST only, on the screen server and in the editor API. A GET is refused.
+- Scenes, scripts, buttons and input buttons are excluded by default. To use them, remove them from `exclude_domains`.
+- If `allow_domains` is filled in, only those domains are active. An empty list uses the defaults. Single entities can still be added with `allow_entities`.
+- A layout change closes the open live connections of the screens that show it. Their tokens get the new layout.
+- Live updates: a failed connection is cleaned up and no longer leaves a connection behind.
+- Picture cache has a byte limit (32 MiB) and removes the least recently used pictures first.
+- Background tasks are tracked and their errors are logged. Startup and shutdown clean up their resources.
+- Fallback state reads for the editor run with a limit on concurrency and a deadline.
+- Internal errors return a generic message with a reference; the details are only in the log.
+- Screen token file (`screens.json`) is written with owner-only permissions.
+- Documentation: screen tokens replace the read token everywhere; backup and storage guidance is added.
+- App version raised to 0.8.7.

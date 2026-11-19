@@ -1,3 +1,5 @@
+from app_keys import ACTIVE, APP_SETTINGS_PATH, BRIDGE, DETECTED_IP, HA, HUB, IMAGES, INTERNAL_URL, OPTIONS, PICTURE_LOCKS, PICTURE_SLOTS, SAVED, SCREENS, STORE
+import asyncio
 import base64
 import json
 import os
@@ -53,7 +55,7 @@ class FakeHa:
         self.calls.append((entity_id, service, data))
 
     async def config(self):
-        return {"internal_url": self.internal_url}
+        return {INTERNAL_URL: self.internal_url}
 
     async def picture(self, entity_picture):
         return b"png-bytes", "image/png"
@@ -76,15 +78,15 @@ class ApiTests(unittest.IsolatedAsyncioTestCase):
         }
         self.hub = Hub(self.active, self.bridge)
         state = {
-            "options": {"log_level": "info",
+            OPTIONS: {"log_level": "info",
                         "allow_domains": {"light", "sensor", "image"},
                         "screen_address_mode": "ip", "screen_ip": "",
                         "allow_entities": set(), "exclude_domains": {"lock", "alarm_control_panel"},
                         "exclude_entities": set(),
                         "services": {"toggle", "turn_on"}, "read_services": {"toggle"}},
-            "store": self.store, "active": self.active, "bridge": self.bridge,
-            "hub": self.hub, "ha": self.ha, "images": {}, "picture_locks": {}, "screens": ScreenStore(os.path.join(root, "screens.json")), "saved": {}, "detected_ip": "192.168.69.248",
-            "settings_path": os.path.join(self.tmp.name, "settings.json"),
+            STORE: self.store, ACTIVE: self.active, BRIDGE: self.bridge,
+            HUB: self.hub, HA: self.ha, IMAGES: {}, PICTURE_LOCKS: {}, PICTURE_SLOTS: asyncio.Semaphore(4), SCREENS: ScreenStore(os.path.join(root, "screens.json")), SAVED: {}, DETECTED_IP: "192.168.69.248",
+            APP_SETTINGS_PATH: os.path.join(self.tmp.name, "settings.json"),
         }
         self.editor = TestClient(TestServer(build_app(editor_api.add_routes, state, [ingress_only])))
         self.screen = TestClient(TestServer(build_app(screen_api.add_routes, state)))
@@ -110,7 +112,7 @@ class ApiTests(unittest.IsolatedAsyncioTestCase):
     async def test_status_through_ingress(self):
         resp = await self.editor.get("/api/status", headers=INGRESS)
         self.assertEqual(resp.status, 200)
-        self.assertEqual((await resp.json())["version"], "0.8.5")
+        self.assertEqual((await resp.json())["version"], "0.8.7")
 
     async def test_publishing_adds_and_unpublishing_removes_entities(self):
         resp = await self.editor.post("/api/layout_save?path=kitchen/morning", json=LAYOUT, headers=INGRESS)
@@ -158,16 +160,16 @@ class ApiTests(unittest.IsolatedAsyncioTestCase):
         self.store.snapshot_layout(["kitchen", "morning"])
         self.active.set_page("kitchen/morning", ["light.kitchen"])
 
-        ok = await self.screen.get(
+        ok = await self.screen.post(
             f"/service?entity_id=light.kitchen&service=toggle&layout=kitchen/morning&token={TOKEN}")
         self.assertEqual(ok.status, 200)
         self.assertEqual(self.ha.calls, [("light.kitchen", "toggle", {})])
 
-        other = await self.screen.get(
+        other = await self.screen.post(
             f"/service?entity_id=light.hall&service=toggle&layout=kitchen/morning&token={TOKEN}")
         self.assertEqual(other.status, 403)
 
-        not_read = await self.screen.get(
+        not_read = await self.screen.post(
             f"/service?entity_id=light.kitchen&service=turn_on&layout=kitchen/morning&token={TOKEN}")
         self.assertEqual(not_read.status, 403)
 
@@ -207,7 +209,7 @@ class ApiTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_token_cannot_unlock_a_lock(self):
         # Even with the token, an unlock on a lock is refused before Home Assistant is called.
-        resp = await self.screen.get(
+        resp = await self.screen.post(
             f"/service?entity_id=lock.front_door&service=unlock&layout=entry/door&token={TOKEN}")
         self.assertEqual(resp.status, 403)
         self.assertEqual(self.ha.calls, [])

@@ -1,10 +1,10 @@
-"""Paths, limits and add-on options. Environment variables override the paths for local testing."""
+"""Paths, limits and App options. Environment variables override the paths for local testing."""
 import json
 import logging
 import os
 from pathlib import Path
 
-APP_VERSION = "0.8.5"
+APP_VERSION = "0.8.7"
 
 DATA_DIR = Path(os.environ.get("DATA_DIR", "/data"))
 OPTIONS_PATH = Path(os.environ.get("OPTIONS_PATH", str(DATA_DIR / "options.json")))
@@ -29,7 +29,7 @@ DEFAULT_DOMAINS = [
     "sensor", "binary_sensor", "weather", "image",
 ]
 # Locks and alarm panels are excluded by default. Remove them from these lists to allow them.
-DEFAULT_EXCLUDE_DOMAINS = ["lock", "alarm_control_panel"]
+DEFAULT_EXCLUDE_DOMAINS = ["lock", "alarm_control_panel", "scene", "script", "button", "input_button"]
 LOCK_ALARM_SERVICES = [
     "lock", "unlock", "open", "alarm_arm_away", "alarm_arm_home", "alarm_arm_night",
     "alarm_arm_vacation", "alarm_arm_custom_bypass", "alarm_disarm", "alarm_trigger",

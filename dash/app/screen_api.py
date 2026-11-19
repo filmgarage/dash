@@ -12,6 +12,7 @@ from settings import UI_DIR
 from web_common import (MAX_IDS, MAX_SCREENS, MAX_WS_MESSAGE, SERVICE_NAME_RE, call_params, handle_errors,
                         is_allowed, json_etag, picture_entry, picture_http, picture_response, request_token,
                         screen_scope, scoped_entities, service_data)
+from app_keys import BRIDGE, HA, HUB, OPTIONS, SCREENS, STORE
 
 log = logging.getLogger("dash.screen")
 WS_CLOSE_UNAUTHORIZED = 4401
@@ -31,8 +32,8 @@ async def states(request):
     ids = ([i for i in request.query.get("ids", "").split(",") if i] or sorted(allowed))[:MAX_IDS]
     out = {}
     for entity_id in ids:
-        if entity_id in allowed and entity_id in app["bridge"].states:
-            out[entity_id] = public_view(entity_id, app["bridge"].states[entity_id])
+        if entity_id in allowed and entity_id in app[BRIDGE].states:
+            out[entity_id] = public_view(entity_id, app[BRIDGE].states[entity_id])
     return json_etag(request, {"states": out})
 
 
@@ -42,17 +43,16 @@ async def layout_load(request):
     parts = checked(parse_path(request.query.get("path")))
     if parts != parse_path(scope["layout"]):
         raise ApiError("this screen shows another layout", 403)
-    return web.json_response({"layout": request.app["store"].load_published(parts)})
+    return web.json_response({"layout": request.app[STORE].load_published(parts)})
 
 
 @handle_errors
 async def service(request):
-    """GET (kept for older designers) or POST (contract 8.9): the parameters come from the query string, and for
-    POST also from a JSON object body."""
+    """POST only (contract 9.0): the parameters come from the query string and from a JSON object body."""
     scope = screen_scope(request)
     app = request.app
-    options = app["options"]
-    store = app["store"]
+    options = app[OPTIONS]
+    store = app[STORE]
     params = await call_params(request)
     if params.get("layout") not in (None, "", scope["layout"]):
         raise ApiError("this screen shows another layout", 403)
@@ -70,14 +70,14 @@ async def service(request):
         raise ApiError("layout is not published", 403)
     if entity_id not in store.published_entities(layout):
         raise ApiError("entity is not on this layout", 403)
-    app["ha"].require_token()
+    app[HA].require_token()
     data = service_data(params, name)
-    s = await app["ha"].state(entity_id)
+    s = await app[HA].state(entity_id)
     if s is None:
         raise ApiError("entity not found", 404)
     if s.get("state") == "unavailable":
         raise ApiError("entity unavailable", 503)
-    await app["ha"].call_service(entity_id, name, data)
+    await app[HA].call_service(entity_id, name, data)
     return web.json_response({"ok": True})
 
 
@@ -86,10 +86,10 @@ async def imagedata(request):
     scope = screen_scope(request)
     app = request.app
     entity_id = request.query.get("entity", "")
-    if not entity_id.startswith("image.") or not is_allowed(app["options"], entity_id) \
+    if not entity_id.startswith("image.") or not is_allowed(app[OPTIONS], entity_id) \
             or entity_id not in scoped_entities(app, scope):
         raise ApiError("no allowed image entity", 403)
-    app["ha"].require_token()
+    app[HA].require_token()
     return await picture_response(app, entity_id, request.query.get("hash", ""))
 
 
@@ -99,10 +99,10 @@ async def image(request):
     scope = screen_scope(request)
     app = request.app
     entity_id = request.query.get("entity", "")
-    if not entity_id.startswith("image.") or not is_allowed(app["options"], entity_id) \
+    if not entity_id.startswith("image.") or not is_allowed(app[OPTIONS], entity_id) \
             or entity_id not in scoped_entities(app, scope):
         raise ApiError("no allowed image entity", 403)
-    app["ha"].require_token()
+    app[HA].require_token()
     return picture_http(request, await picture_entry(app, entity_id))
 
 
@@ -114,7 +114,7 @@ async def live(request):
     (contract 8.9). A screen token limits the channel to the entities of its layout (contract 9.0)."""
     ws = web.WebSocketResponse(heartbeat=30, max_msg_size=MAX_WS_MESSAGE)
     app = request.app
-    hub = app["hub"]
+    hub = app[HUB]
     if request_token(request) or request.query.get("token"):
         try:
             scope = screen_scope(request)
@@ -133,10 +133,11 @@ async def live(request):
         await ws.close(code=WS_CLOSE_TOO_MANY)
         return ws
     allowed = scoped_entities(app, scope)
-    hub.add(ws, scope["token"])
-    hub.subscribe(ws, allowed)
-    await ws.send_json({"type": "states", "states": hub.snapshot(allowed)})
+    # Everything from here on is inside try/finally, so the client is always removed, even if the first send fails.
     try:
+        hub.add(ws, scope["token"])
+        hub.subscribe(ws, allowed)
+        await ws.send_json({"type": "states", "states": hub.snapshot(allowed)})
         async for msg in ws:
             if msg.type != WSMsgType.TEXT:
                 continue
@@ -173,7 +174,7 @@ async def _authenticate_by_message(app, ws):
     if not isinstance(data, dict) or data.get("type") != "auth":
         return False, None
     given = data.get("token")
-    record = app["screens"].find_by_token(given) if isinstance(given, str) and given else None
+    record = app[SCREENS].find_by_token(given) if isinstance(given, str) and given else None
     return record is not None, record
 
 
@@ -188,7 +189,7 @@ async def favicon(request):
 
 
 def add_routes(app):
-    store = app["store"]
+    store = app[STORE]
     router = app.router
     # The viewer is part of the HA App. It is registered before the static route, so an old copy in
     # the publish folder is never served.
@@ -198,7 +199,6 @@ def add_routes(app):
     router.add_get("/health", health)
     router.add_get("/states", states)
     router.add_get("/layout_load", layout_load)
-    router.add_get("/service", service)
     router.add_post("/service", service)
     router.add_get("/imagedata", imagedata)
     router.add_get("/image", image)

@@ -4,7 +4,7 @@ DASH is a small set of web pages for Home Assistant dashboards on simple screens
 tablet or an old phone. The pages are light, fast to load and show live values from Home Assistant.
 
 You design a layout in the DASH editor inside Home Assistant, choose a skin (colours, fonts, tile style) and publish
-it. A screen then opens one URL and shows the layout. The URL contains the layout, the skin and a read token, so the
+it. A screen then opens one URL and shows the layout. The URL contains the layout, the skin and the screen token, so the
 screen never needs a login menu.
 
 ## What is in this repository
@@ -25,11 +25,11 @@ screen never needs a login menu.
 
 ## Installation
 
-1. In Home Assistant, go to **Settings → Add-ons → Add-on Store**.
+1. In Home Assistant, go to **Settings → Apps → App store**.
 2. Open the menu (⋮) in the top right and choose **Repositories**.
 3. Enter the URL of this repository and add it.
 4. Find **DASH** in the store, install it and open its **Configuration** tab.
-5. Set a read token for the screens and save.
+5. Check the options and save. Create one token per screen in the designer.
 6. Start the HA App and open **DASH** in the sidebar.
 
 To update, open the HA App's page and install the new version when Home Assistant offers it.

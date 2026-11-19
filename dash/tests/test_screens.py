@@ -1,4 +1,5 @@
 """Screen tokens (contract 9.0): storage and what a screen token may reach. There is no master token."""
+from app_keys import ACTIVE, APP_SETTINGS_PATH, BRIDGE, DETECTED_IP, HA, HUB, IMAGES, INTERNAL_URL, OPTIONS, PICTURE_LOCKS, PICTURE_SLOTS, SAVED, SCREENS, STORE
 import asyncio
 import os
 import sys
@@ -78,7 +79,7 @@ class ScopeTests(unittest.IsolatedAsyncioTestCase):
         await api_tests.ApiTests.asyncTearDown(self)
 
     def screens_store(self):
-        return self.editor.app["screens"]
+        return self.editor.app[SCREENS]
 
     def auth(self):
         return {"Authorization": f"Bearer {self.screen_record['token']}"}
@@ -97,13 +98,13 @@ class ScopeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(other.status, 403)
 
     async def test_a_screen_token_controls_only_its_own_entities(self):
-        other = await self.screen.get("/service?entity_id=light.hall&service=toggle&layout=hall/evening",
+        other = await self.screen.post("/service?entity_id=light.hall&service=toggle&layout=hall/evening",
                                       headers=self.auth())
         self.assertEqual(other.status, 403)
-        own = await self.screen.get("/service?entity_id=light.kitchen&service=toggle&layout=hall/evening",
+        own = await self.screen.post("/service?entity_id=light.kitchen&service=toggle&layout=hall/evening",
                                     headers=self.auth())
         self.assertEqual(own.status, 403)  # the layout is fixed by the token, the request names another one
-        ok = await self.screen.get("/service?entity_id=light.kitchen&service=toggle", headers=self.auth())
+        ok = await self.screen.post("/service?entity_id=light.kitchen&service=toggle", headers=self.auth())
         self.assertEqual(ok.status, 200)
 
     async def test_a_screen_token_gets_no_other_pictures(self):

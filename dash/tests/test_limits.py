@@ -1,4 +1,5 @@
 """Limits and checks added in 0.7.6: service data per service, security headers, screen limit and one download per picture."""
+from app_keys import ACTIVE, APP_SETTINGS_PATH, BRIDGE, DETECTED_IP, HA, HUB, IMAGES, INTERNAL_URL, OPTIONS, PICTURE_LOCKS, PICTURE_SLOTS, SAVED, SCREENS, STORE
 import asyncio
 import os
 import sys
@@ -77,7 +78,7 @@ class PictureLockTests(unittest.IsolatedAsyncioTestCase):
                 await asyncio.sleep(0.05)
                 return b"bytes", "image/png"
 
-        app = {"ha": SlowHa(), "images": {}, "picture_locks": {}}
+        app = {HA: SlowHa(), IMAGES: {}, PICTURE_LOCKS: {}, PICTURE_SLOTS: asyncio.Semaphore(4)}
         results = await asyncio.gather(*(picture_entry(app, "image.x") for _ in range(5)))
         self.assertEqual(len(calls), 1)
         self.assertTrue(all(r["data"] == b"bytes" for r in results))

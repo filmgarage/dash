@@ -1,5 +1,5 @@
 name: DASH
-version: "0.8.5"
+version: "0.8.7"
 slug: dash
 description: Lightweight Home Assistant dashboards
 stage: experimental
@@ -29,6 +29,10 @@ options:
   exclude_domains:
     - lock
     - alarm_control_panel
+    - scene
+    - script
+    - button
+    - input_button
   exclude_entities: []
   services: []
   allow_services: []

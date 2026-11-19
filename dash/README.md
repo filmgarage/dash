@@ -1,4 +1,4 @@
-# DASH HA App (v0.8.5)
+# DASH HA App (v0.8.7)
 
 DASH is a Home Assistant app for simple, light web dashboards on screens such as a Fully Kiosk photo frame or a
 wall tablet. You design a layout in the DASH editor, publish it, and the screen shows it with live values from
@@ -12,17 +12,17 @@ Home Assistant.
   page. Publishing adds entities, unpublishing removes the ones that no other published page uses. Drafts do not
   change anything.
 - **Screen server** (port 8092, local network only): serves the published pages and the viewer, gives the viewer the
-  states, and pushes live changes over a websocket. Data needs the read token; the pages themselves do not.
+  states, and pushes live changes over a websocket. Data needs the screen token of that screen; the pages themselves do not.
 - **Files**: layouts are stored in the HA App's data folder. Published pages, the viewer, skins and images are
   stored in the HA App's data folder too, and served by the HA App on port 8092. Home Assistant's `www` folder is
   not used, so nothing is published through Home Assistant's web server.
 
 ## Installation
 
-1. In Home Assistant, go to **Settings → Add-ons → Add-on Store**, open the menu (⋮) and choose **Repositories**.
+1. In Home Assistant, go to **Settings → Apps → App store**, open the menu (⋮) and choose **Repositories**.
 2. Add the URL of the repository (the repository root, the folder that contains `repository.yaml`).
 3. Find **DASH** in the store, install it and open its **Configuration** tab.
-4. Set a **read token** (see below) and save.
+4. Check the options and save. Screen tokens are created per screen in the designer, not in the options.
 5. Start the HA App. Open **DASH** in the sidebar.
 
 Requirements: Home Assistant OS or Supervised. The HA App uses the Supervisor token that Home Assistant provides;
@@ -40,7 +40,8 @@ short version:
   local network who can reach port 8092 can open them. Do not put private information in layout names, titles or labels.
 - Every screen has its own token (`autotoken_…`), created in the designer. A screen token reaches only the layout it
   was made for. There is no shared token. The token is part of the screen URL, so treat that URL as a secret, and
-  rotate the token if a screen is lost.
+  rotate the token if a screen is lost. Tokens are stored in `screens.json` in the HA App's data folder (owner-only
+  permissions); backups of that folder contain them.
 - Keep `read_services` short. Leave out `lock`, `unlock` and the alarm services on shared screens.
 - A screen can start any script, button or scene it is allowed to use, and a script can do more than its name says.
   A script that switches a light can also switch a lock or an alarm. Before you put a script or a button on a layout,
@@ -87,13 +88,11 @@ Rules, in this order:
 3. A layout that uses a refused entity cannot be published. The editor shows which entity it is.
 4. A screen may call a service only if it is in `read_services` and not refused by `exclude_read_services`.
 
-Locks and alarm panels are excluded by default: a lock or alarm tile cannot be published, and no screen can unlock or
-disarm. To allow them, remove the domain from `exclude_domains` and the services from `exclude_read_services`. Do this
+Locks, alarm panels, scenes, scripts, buttons and input buttons are excluded by default: a lock or alarm tile cannot be
+published, and no screen can unlock or disarm. Scenes, scripts and buttons can be switched on the same way. To allow them, remove the domain from `exclude_domains` and the services from `exclude_read_services`. Do this
 only for a screen in a place where everyone who can reach port 8092 may open that lock or alarm.
 
-Changes take effect after the HA App restarts. A missing option uses its default; an empty list excludes nothing.
-
-Create the read token with a password generator and use a value that you do not use anywhere else.
+Changes take effect after the HA App restarts. A missing option uses its default; an empty list excludes nothing. A filled-in `allow_domains` replaces the default domains: only those domains are active. Single entities can be added with `allow_entities`.
 
 The HA App reads the screen address from the entity `sensor.local_ip`. That entity comes from the Local IP Address
 integration: add it under Settings > Devices & services. Without it, set the address with the `screen_ip` option or
@@ -117,15 +116,15 @@ in the designer.
 | `viewer.html` | The viewer. The HA App serves it; nothing to publish. |
 | `layout=` | The layout to show, as it is named in the editor, for example `kitchen/morning`. The layout must be published. |
 | `skin=` | The skin (colours, fonts, tile style). Optional; without it the default skin or the layout's own style is used. |
-| `token=` | The read token from the HA App options. |
+| `#token=` | The screen token of this screen, from the designer. It is after `#`, so it is not sent in the request line. |
 
 Steps:
 
 1. Open DASH, design the layout, choose a skin and publish the layout.
-2. Build the URL above with the layout path, the skin name and the read token.
+2. Build the URL above with the layout path, the skin name and the screen token of that screen.
 3. In Fully Kiosk Browser (or any browser), set this URL as the start page.
 
-The viewer, its API and its live updates all use port 8092 of the same host, over plain `http://`. Nothing goes
+The viewer, its API and its live updates use port 8092 of the same host, over plain `http://`. Nothing goes
 through Home Assistant's web server or through a reverse proxy.
 
 The screen shows the **published** version of a layout. Saving a draft changes nothing on screens; publishing
@@ -154,7 +153,7 @@ Everything is in the HA App's data folder, so it is kept across updates and incl
 
 - **The editor shows "no Supervisor token"**: the HA App was installed without `homeassistant_api`. Rebuild it from
   the current version.
-- **A screen gets 503 "read token not configured"**: set the read token in the HA App options and restart.
+- **A screen gets 401 or its live connection closes with code 4401**: the token is wrong, was rotated or the screen was deleted. Copy the current URL from the designer.
 - **A screen gets 401 "unauthorized"**: the token in the URL does not match the HA App option.
 - **A screen gets 404 "layout is not published"**: publish the layout in the editor.
 - **After updating from 0.2.x**: pages published before 0.3.0 were stored in Home Assistant's `www` folder, and they
