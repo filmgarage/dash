@@ -28,7 +28,7 @@ class Supervisor:
 
     def require_token(self):
         if not self.token:
-            raise ApiError("no Supervisor token: homeassistant_api is not active; rebuild the add-on", 503)
+            raise ApiError("no Supervisor token: homeassistant_api is not active; rebuild the App", 503)
 
     def _headers(self):
         return {"Authorization": f"Bearer {self.token}"}
@@ -56,6 +56,15 @@ class Supervisor:
             if r.status != 200:
                 raise ApiError(f"Home Assistant answered {r.status}", 502)
             return await r.json()
+
+    async def set_state(self, entity_id, state, attributes):
+        """Writes a state for an entity that the App owns (POST /api/states/<entity_id>). Home Assistant keeps it
+        until its next restart, so the App writes the states again at startup."""
+        async with self.session.post(f"{self.base}/api/states/{entity_id}",
+                                     json={"state": state, "attributes": attributes},
+                                     headers=self._headers(), timeout=TIMEOUT) as r:
+            if r.status >= 300:
+                raise ApiError(f"Home Assistant answered {r.status} for {entity_id}", 502)
 
     async def call_service(self, entity_id, service, data):
         domain = entity_id.split(".", 1)[0]

@@ -1,4 +1,4 @@
-# DASH HA App (v0.8.7)
+# DASH HA App (v0.8.8)
 
 DASH is a Home Assistant app for simple, light web dashboards on screens such as a Fully Kiosk photo frame or a
 wall tablet. You design a layout in the DASH editor, publish it, and the screen shows it with live values from
@@ -42,6 +42,8 @@ short version:
   was made for. There is no shared token. The token is part of the screen URL, so treat that URL as a secret, and
   rotate the token if a screen is lost. Tokens are stored in `screens.json` in the HA App's data folder (owner-only
   permissions); backups of that folder contain them.
+Each screen also has a sensor in Home Assistant, `sensor.dash_screen_<name>`, whose state is the complete viewer URL including
+the token. Home Assistant stores the history of that sensor in its recorder; exclude it there if you do not want that.
 - Keep `read_services` short. Leave out `lock`, `unlock` and the alarm services on shared screens.
 - A screen can start any script, button or scene it is allowed to use, and a script can do more than its name says.
   A script that switches a light can also switch a lock or an alarm. Before you put a script or a button on a layout,

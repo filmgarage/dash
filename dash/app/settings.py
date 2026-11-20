@@ -4,7 +4,7 @@ import logging
 import os
 from pathlib import Path
 
-APP_VERSION = "0.8.7"
+APP_VERSION = "0.8.8"
 
 DATA_DIR = Path(os.environ.get("DATA_DIR", "/data"))
 OPTIONS_PATH = Path(os.environ.get("OPTIONS_PATH", str(DATA_DIR / "options.json")))

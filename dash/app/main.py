@@ -19,6 +19,7 @@ from settings import (ACTIVE_PATH, APP_VERSION, DATA_DIR, HA_WS_URL, LAYOUT_DIR,
                       PUBLISH_URL, PUBLISHED_DIR, S6_ENV_DIR, SCREEN_PORT, SUPERVISOR_TOKEN,
                       SUPERVISOR_URL, UI_PORT, load_options, log_level)
 from network import detect_lan_ip, load_saved, read_internal_url
+import page_sensors
 from screens import ScreenStore
 from store import Store
 from web_common import MAX_CONCURRENT_DOWNLOADS, build_app, ingress_only, is_allowed, security_headers
@@ -103,6 +104,7 @@ async def main():
                  DETECTED_IP: detected_ip, INTERNAL_URL: internal_url,
                  SCREENS: ScreenStore(DATA_DIR / "screens.json"),
                  APP_SETTINGS_PATH: SETTINGS_PATH, SAVED: load_saved(SETTINGS_PATH)}
+        track(page_sensors.sync_all(ha, store, state[SCREENS], options, state[SAVED], detected_ip))
         editor = build_app(editor_api.add_routes, state, [ingress_only, security_headers])
         screens = build_app(screen_api.add_routes, state, [security_headers])
         for app, port in ((editor, UI_PORT), (screens, SCREEN_PORT)):

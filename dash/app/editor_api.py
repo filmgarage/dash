@@ -3,6 +3,7 @@ import asyncio
 from aiohttp import web
 
 from errors import ApiError
+import page_sensors
 from network import resolve_screen_host, save_saved, valid_ipv4
 from settings import APP_VERSION, PUBLISH_URL, SCREEN_PORT, UI_DIR
 from store import checked, parse_path
@@ -247,6 +248,7 @@ async def publish_save(request):
         raise ApiError('no html in body (expected {"html": "..."})', 400)
     url = store.publish_html(parts, html)
     key = "/".join(parts)
+    await page_sensors.publish_page(app, parts)
     if store.has_layout(parts):
         saved = store.snapshot_layout(parts)
         added, removed = app[ACTIVE].set_page(key, store.published_entities(parts))
@@ -273,6 +275,7 @@ async def publish_delete(request):
         key = "/".join(parts)
         app[STORE].delete_page(parts)
         app[ACTIVE].remove_page(key)
+        await page_sensors.unpublish_page(app, parts)
         await app[HUB].broadcast_layout(key, None)
     return web.json_response({"ok": True})
 
@@ -358,6 +361,7 @@ async def screen_save(request):
     # A changed layout changes what the screen may see. Its open push channels must reconnect and authenticate again.
     if before is not None and before["layout"] != screen["layout"]:
         await app[HUB].close_for_token(screen["token"])
+    await page_sensors.write_screen(app, screen)
     return web.json_response({"screen": screen})
 
 
@@ -371,6 +375,7 @@ async def screen_rotate(request):
         raise ApiError("no such screen", 404)
     screen = app[SCREENS].rotate(name)
     await app[HUB].close_for_token(old["token"])
+    await page_sensors.write_screen(app, screen)
     return web.json_response({"screen": screen})
 
 
@@ -383,6 +388,7 @@ async def screen_delete(request):
         raise ApiError("no such screen", 404)
     app[SCREENS].delete(name)
     await app[HUB].close_for_token(old["token"])
+    await page_sensors.remove_screen(app, name)
     return web.json_response({"ok": True})
 
 

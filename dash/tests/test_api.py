@@ -45,6 +45,9 @@ class FakeHa:
     def require_token(self):
         pass
 
+    async def set_state(self, entity_id, state, attributes):
+        self.calls.append(("set_state", entity_id, state))
+
     async def states(self):
         return list(self.entities.values())
 
@@ -112,7 +115,7 @@ class ApiTests(unittest.IsolatedAsyncioTestCase):
     async def test_status_through_ingress(self):
         resp = await self.editor.get("/api/status", headers=INGRESS)
         self.assertEqual(resp.status, 200)
-        self.assertEqual((await resp.json())["version"], "0.8.7")
+        self.assertEqual((await resp.json())["version"], "0.8.8")
 
     async def test_publishing_adds_and_unpublishing_removes_entities(self):
         resp = await self.editor.post("/api/layout_save?path=kitchen/morning", json=LAYOUT, headers=INGRESS)
