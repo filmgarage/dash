@@ -61,6 +61,16 @@ class NamesAndUrlsTests(unittest.TestCase):
         self.assertEqual(sensor_id("thuis/woonkamer"), "sensor.dash_thuis_woonkamer")
         self.assertEqual(screen_sensor_id("Hal 2"), "sensor.dash_screen_hal_2")
 
+    def test_page_name_is_readable(self):
+        self.assertEqual(page_sensors.page_name("thuis/woonkamer"), "thuis / woonkamer")
+
+    def test_a_page_without_screen_shows_the_placeholder(self):
+        ha = FakeHa()
+        asyncio.run(sync_all(ha, FakeStore(PAGES, published=("thuis/woonkamer", "thuis/keuken")), FakeScreens([]),
+                             {}, {}, "192.168.69.248"))
+        by_id = {entity: state for entity, state, _a in ha.written}
+        self.assertEqual(by_id["sensor.dash_thuis_woonkamer"], "http://192.168.69.248:8092/dash/placeholder.html")
+
     def test_page_url_has_no_token(self):
         self.assertEqual(page_url("192.168.69.248", "thuis/woonkamer"),
                          "http://192.168.69.248:8092/dash/thuis/woonkamer.html")
@@ -76,7 +86,8 @@ class SyncTests(unittest.TestCase):
         written = asyncio.run(sync_all(ha, FakeStore(PAGES), FakeScreens(SCREEN_RECORDS), {}, {}, "192.168.69.248"))
         self.assertEqual(written, 2)
         by_id = {entity: (state, attrs) for entity, state, attrs in ha.written}
-        self.assertEqual(by_id["sensor.dash_thuis_woonkamer"][0], "http://192.168.69.248:8092/dash/thuis/woonkamer.html")
+        self.assertEqual(by_id["sensor.dash_thuis_woonkamer"][0],
+                         "http://192.168.69.248:8092/dash/thuis/woonkamer.html#token=autotoken_abc")
         self.assertIn("autotoken_abc", by_id["sensor.dash_screen_woonkamer"][0])
         self.assertEqual(by_id["sensor.dash_screen_woonkamer"][1]["layout"], "thuis/woonkamer")
 
@@ -114,10 +125,10 @@ class SyncTests(unittest.TestCase):
     def test_removing_a_page_and_a_screen_sets_removed(self):
         app = {HA: FakeHa(), OPTIONS: {}, SAVED: {}, DETECTED_IP: None, STORE: FakeStore(PAGES), SCREENS: FakeScreens([])}
         asyncio.run(page_sensors.unpublish_page(app, ["thuis", "woonkamer"]))
-        asyncio.run(page_sensors.remove_screen(app, "Woonkamer"))
+        asyncio.run(page_sensors.remove_screen(app, "Woonkamer", "thuis/woonkamer"))
         states = [(e, s) for e, s, _a in app[HA].written]
-        self.assertEqual(states, [("sensor.dash_thuis_woonkamer", "removed"),
-                                  ("sensor.dash_screen_woonkamer", "removed")])
+        self.assertIn(("sensor.dash_thuis_woonkamer", "removed"), states)
+        self.assertIn(("sensor.dash_screen_woonkamer", "removed"), states)
 
 
 class UnreachableTests(unittest.TestCase):

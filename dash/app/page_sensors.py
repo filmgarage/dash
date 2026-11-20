@@ -38,6 +38,11 @@ def screen_sensor_id(name):
     return f"sensor.dash_screen_{_slug(name)}"
 
 
+def page_name(path):
+    """The readable name of a page in Home Assistant, for example "thuis / woonkamer"."""
+    return " / ".join(path.split("/"))
+
+
 def page_url(host, path):
     return f"http://{host}:{SCREEN_PORT}{PUBLISH_URL}/{path}.html"
 
@@ -62,6 +67,19 @@ def _screen_state(store, host, screen):
     return screen_url(host, screen["layout"], screen["token"])
 
 
+def _page_state(store, screens, host, path):
+    """A page's sensor state. The page needs a token: the token of a screen with the same layout is used.
+    Without such a screen, or while the layout is unpublished, the placeholder is shown."""
+    if not host:
+        return "no screen address"
+    if not store.is_published(path.split("/")):
+        return placeholder_url(host)
+    for screen in screens:
+        if screen["layout"] == path:
+            return f"{page_url(host, path)}#token={screen['token']}"
+    return placeholder_url(host)
+
+
 def _attributes(kind, key, removed, **extra):
     return {"attribution": ATTRIBUTION, "kind": kind, "key": key, "removed": removed,
             "icon": ICON, **extra}
@@ -83,12 +101,17 @@ def _host(options, saved, detected):
 
 # --- pages -------------------------------------------------------------------------------------------------
 
+async def write_page(app, path):
+    host = _host(app[OPTIONS], app.get(SAVED), app.get(DETECTED_IP))
+    state = _page_state(app[STORE], app[SCREENS].list(), host, path)
+    return await _write(app[HA], sensor_id(path), state,
+                        _attributes("page", path, False, friendly_name=page_name(path)))
+
+
 async def publish_page(app, parts):
     """Writes the sensor of one page. Used after a page is saved; a failure does not fail the save."""
     path = "/".join(parts)
-    host = _host(app[OPTIONS], app.get(SAVED), app.get(DETECTED_IP))
-    ok = await _write(app[HA], sensor_id(path), page_url(host, path) if host else "no screen address",
-                      _attributes("page", path, False, friendly_name=f"DASH page {path}"))
+    ok = await write_page(app, path)
     await _refresh_screens(app, path)
     return ok
 
@@ -96,7 +119,7 @@ async def publish_page(app, parts):
 async def unpublish_page(app, parts):
     path = "/".join(parts)
     ok = await _write(app[HA], sensor_id(path), "removed",
-                      _attributes("page", path, True, friendly_name=f"DASH page {path}"))
+                      _attributes("page", path, True, friendly_name=page_name(path)))
     await _refresh_screens(app, path)
     return ok
 
@@ -114,14 +137,18 @@ async def write_screen(app, screen):
     """Writes the sensor of one screen, token included. Used after a screen is saved, rotated or deleted in the App."""
     host = _host(app[OPTIONS], app.get(SAVED), app.get(DETECTED_IP))
     state = _screen_state(app[STORE], host, screen)
-    return await _write(app[HA], screen_sensor_id(screen["name"]), state,
-                        _attributes("screen", screen["name"], False, friendly_name=f"DASH screen {screen['name']}",
-                                    layout=screen["layout"]))
+    ok = await _write(app[HA], screen_sensor_id(screen["name"]), state,
+                      _attributes("screen", screen["name"], False, friendly_name=f"DASH screen {screen['name']}",
+                                  layout=screen["layout"]))
+    await write_page(app, screen["layout"])
+    return ok
 
 
-async def remove_screen(app, name):
-    return await _write(app[HA], screen_sensor_id(name), "removed",
-                        _attributes("screen", name, True, friendly_name=f"DASH screen {name}"))
+async def remove_screen(app, name, layout):
+    ok = await _write(app[HA], screen_sensor_id(name), "removed",
+                      _attributes("screen", name, True, friendly_name=f"DASH screen {name}"))
+    await write_page(app, layout)
+    return ok
 
 
 # --- startup -----------------------------------------------------------------------------------------------
@@ -134,8 +161,8 @@ async def sync_all(ha, store, screens, options, saved, detected):
         if page["type"] != "html":
             continue
         path = page["path"]
-        if await _write(ha, sensor_id(path), page_url(host, path) if host else "no screen address",
-                        _attributes("page", path, False, friendly_name=f"DASH page {path}")):
+        if await _write(ha, sensor_id(path), _page_state(store, screens.list(), host, path),
+                        _attributes("page", path, False, friendly_name=page_name(path))):
             written += 1
     for screen in screens.list():
         if await _write(ha, screen_sensor_id(screen["name"]), _screen_state(store, host, screen),

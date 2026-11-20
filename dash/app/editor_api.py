@@ -388,7 +388,7 @@ async def screen_delete(request):
         raise ApiError("no such screen", 404)
     app[SCREENS].delete(name)
     await app[HUB].close_for_token(old["token"])
-    await page_sensors.remove_screen(app, name)
+    await page_sensors.remove_screen(app, name, old["layout"])
     return web.json_response({"ok": True})
 
 
