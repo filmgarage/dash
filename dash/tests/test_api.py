@@ -115,7 +115,7 @@ class ApiTests(unittest.IsolatedAsyncioTestCase):
     async def test_status_through_ingress(self):
         resp = await self.editor.get("/api/status", headers=INGRESS)
         self.assertEqual(resp.status, 200)
-        self.assertEqual((await resp.json())["version"], "0.8.9")
+        self.assertEqual((await resp.json())["version"], "0.9.1")
 
     async def test_publishing_adds_and_unpublishing_removes_entities(self):
         resp = await self.editor.post("/api/layout_save?path=kitchen/morning", json=LAYOUT, headers=INGRESS)
@@ -242,6 +242,46 @@ class ApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((await ok.json())["screen_host"], "10.0.0.9")
         with open(os.path.join(self.tmp.name, "settings.json"), encoding="utf-8") as f:
             self.assertEqual(json.load(f), {"screen_ip": "10.0.0.9"})
+
+    async def test_settings_panel_saves_lists_formats_and_warnings(self):
+        resp = await self.editor.post("/api/settings", json={
+            "allow_domains": ["light", "cover"], "allow_entities": ["sensor.outside"],
+            "language": "en", "date_format": "DD-MM-YYYY", "time_format": "12h",
+            "warnings": {"tile-override-seen": True}}, headers=INGRESS)
+        self.assertEqual(resp.status, 200)
+        body = await resp.json()
+        self.assertEqual(body["allow_domains"], ["cover", "light"])
+        self.assertEqual(body["allow_entities"], ["sensor.outside"])
+        self.assertEqual(body["warnings"], {"tile-override-seen": True})
+        self.assertEqual(self.state_options()["allow_domains"], {"cover", "light"})
+        status = await (await self.editor.get("/api/status", headers=INGRESS)).json()
+        self.assertEqual(status["date_format"], "DD-MM-YYYY")
+        with open(os.path.join(self.tmp.name, "settings.json"), encoding="utf-8") as f:
+            saved = json.load(f)
+        self.assertEqual(saved["allow_domains"], ["cover", "light"])
+        self.assertEqual(saved["time_format"], "12h")
+
+    async def test_settings_panel_refuses_invalid_values_and_keeps_the_old_ones(self):
+        before = self.state_options()["allow_domains"]
+        bad_bodies = [
+            {"allow_domains": ["Light!"]},
+            {"allow_entities": ["light"]},
+            {"language": "nl"},
+            {"date_format": "YYYY"},
+            {"time_format": "24"},
+            {"warnings": {"unknown-flag": True}},
+            {"warnings": {"tile-override-seen": "yes"}},
+            {"not_a_setting": 1},
+            {"default_skin": "../evil"},
+        ]
+        for body in bad_bodies:
+            resp = await self.editor.post("/api/settings", json=body, headers=INGRESS)
+            self.assertEqual(resp.status, 400, body)
+        self.assertEqual(self.state_options()["allow_domains"], before)
+        self.assertFalse(os.path.exists(os.path.join(self.tmp.name, "settings.json")))
+
+    def state_options(self):
+        return self.editor.app[OPTIONS]
 
     async def test_viewer_cannot_be_published_by_the_editor(self):
         resp = await self.editor.post("/api/publish_save?path=viewer",

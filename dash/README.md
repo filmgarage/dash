@@ -1,4 +1,4 @@
-# DASH HA App (v0.8.9)
+# DASH HA App (v0.9.1)
 
 DASH is a Home Assistant app for simple, light web dashboards on screens such as a Fully Kiosk photo frame or a
 wall tablet. You design a layout in the DASH editor, publish it, and the screen shows it with live values from
@@ -94,7 +94,9 @@ Locks, alarm panels, scenes, scripts, buttons and input buttons are excluded by 
 published, and no screen can unlock or disarm. Scenes, scripts and buttons can be switched on the same way. To allow them, remove the domain from `exclude_domains` and the services from `exclude_read_services`. Do this
 only for a screen in a place where everyone who can reach port 8092 may open that lock or alarm.
 
-Changes take effect after the HA App restarts. A missing option uses its default; an empty list excludes nothing. A filled-in `allow_domains` replaces the default domains: only those domains are active. Single entities can be added with `allow_entities`.
+The options are read when the HA App starts. A missing option uses its default; an empty list excludes nothing. A filled-in `allow_domains` replaces the default domains: only those domains are active. Single entities can be added with `allow_entities`.
+
+The App panel in the editor (gear icon) saves the same lists, plus the language, the date and time format and the warning flags. Those saved values apply at once, without a restart, and are kept in `/data/settings.json`. For the lists they replace the options above until they are changed again.
 
 The HA App reads the screen address from the entity `sensor.local_ip`. That entity comes from the Local IP Address
 integration: add it under Settings > Devices & services. Without it, set the address with the `screen_ip` option or
@@ -117,7 +119,7 @@ in the designer.
 |---|---|
 | `viewer.html` | The viewer. The HA App serves it; nothing to publish. |
 | `layout=` | The layout to show, as it is named in the editor, for example `kitchen/morning`. The layout must be published. |
-| `skin=` | The skin (colours, fonts, tile style). Optional; without it the default skin or the layout's own style is used. |
+| `skin=` | The skin (background, colours, tile style, dark mode). Optional; without it the default skin or the layout's own style is used. |
 | `#token=` | The screen token of this screen, from the designer. It is after `#`, so it is not sent in the request line. |
 
 Steps:

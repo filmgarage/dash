@@ -1,12 +1,21 @@
 # Contract: DASH
 
-**Version:** 9.0 (adds 0i; 0h, 0g, 0f, 3.7 and 4.3 from 8.7 to 8.9; changes 4 and 4.1 for screen tokens; section 0e and 3.6 remain from 8.6)
+**Version:** 9.1 (0.9.1 adds 0j: the skin format is stored as it is, and version 3 skins are accepted until 0.10.0; 0.9.0 extends `api/settings` in 3.5 with the App panel fields; adds 0i; 0h, 0g, 0f, 3.7 and 4.3 from 8.7 to 8.9; changes 4 and 4.1 for screen tokens; section 0e and 3.6 remain from 8.6)
 
 This contract describes how the designer (the editor front end) works with the DASH HA App. The HA App serves the
 editor through Home Assistant Ingress and serves the screens on port 8092 of the Home Assistant host.
 
 Everything not mentioned here is unchanged from version 7.1: the layout format (sections 3 and 3a), layout paths
 (4.8), skins (11), default icons (13), image naming and limits (14, 8) and the error table (5).
+
+## 0j. Changes in version 9.1 (skin format)
+
+HA App 0.9.1. No change in behaviour. The App stores layouts and skins as they are; it does not check their content.
+
+- The layout and skin format is in `DASH-FILE-FORMAT.md` (format-version 1). It adds the skin `background`, `show.switch` and `show.extras`, and `dark-mode` with
+  `source: always`, `source: time` and `until`. Dark mode is light or dark; the words day and night are not used.
+- Skins saved in the old model (`version: 3`) are still accepted by the App until 0.10.0. The designer converts them once
+  when it loads them. From App 0.10.0 on, the App refuses version 3 skins with a message that names them.
 
 ## 0i. Changes in version 9.0 (one token per screen)
 
@@ -229,7 +238,7 @@ All paths are relative to the editor page. No token. Same parameters and respons
 | GET | `api/image_list` | `layout` or `skin` | - | images (7.1 section 14.2) |
 | POST | `api/image_delete` | `layout` or `skin`, `name` | `{}` | delete an image (7.1 section 14.3) |
 | GET | `api/active` | - | - | entities currently monitored, with the layouts that use them (section 5) |
-| POST | `api/settings` | - | `{"screen_ip": "192.168.1.10"}` | save the screen address when the HA App does not know it (3.5) |
+| POST | `api/settings` | - | `{"allow_domains": [...], "language": "en", ...}` | save the App panel settings, or the screen address when the HA App does not know it (3.5) |
 | GET | `api/published_layout` | `path` | - | the published copy of a layout, for the Ingress viewer (3.4) |
 
 ### 3.1 `api/status`
@@ -287,12 +296,24 @@ All paths are relative to the editor page. No token. Same parameters and respons
 
 ### 3.5 `api/settings`
 
-`POST api/settings` with `{"screen_ip": "192.168.1.10"}` saves the screen address that the designer asks for. It is
-used only when the option `screen_ip` is empty, and only after the address found at start (section 3.1, order:
-option, saved, detected).
+`POST api/settings` saves the App panel settings. Every key is optional. Unknown keys are refused. The body is a JSON object:
 
-- The answer is the status fields of 3.1.
-- `400 screen_ip must be an IPv4 address such as 192.168.1.10` when the value is not an IPv4 address.
+| Key | Value | Rule |
+|---|---|---|
+| `screen_ip` | IPv4 address | The screen address the designer asks for. Used only when the option `screen_ip` is empty, and only after the address found at start (section 3.1, order: option, saved, detected). |
+| `allow_domains`, `exclude_domains` | list of domain names | Lowercase letters and `_`. Replaces the list from the options. |
+| `allow_entities`, `exclude_entities` | list of entity ids | `domain.object`, lowercase. At most 500 items. Replaces the list from the options. |
+| `language` | `en` | The only value for now. |
+| `date_format` | `YYYY-MM-DD`, `DD-MM-YYYY`, `MM/DD/YYYY`, `D MMM YYYY` | |
+| `time_format` | `24h`, `12h` | |
+| `default_skin` | name of a skin: letters, digits, `_` and `-`, at most 64 characters | Saved as the default skin, as `skins/_default`. |
+| `warnings` | object | Known flags only: `tile-override-seen` (true or false). |
+
+- The changes apply at once. Saved values are kept in `settings.json` and override the options for the lists.
+- The answer is the status fields of 3.1 plus `allow_domains`, `allow_entities`, `exclude_domains`, `exclude_entities`,
+  `language`, `date_format`, `time_format` and `warnings`.
+- `400` with the name of the key and the reason, for example `screen_ip must be an IPv4 address such as 192.168.1.10`,
+  when a value is not valid. Nothing is saved when any value is refused.
 - The designer asks only when `screen_host` is `null` and `screen_address_mode` is `ip`.
 
 ### 3.6 Layout field `skin`

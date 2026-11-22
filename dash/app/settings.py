@@ -4,7 +4,7 @@ import logging
 import os
 from pathlib import Path
 
-APP_VERSION = "0.8.9"
+APP_VERSION = "0.9.1"
 
 DATA_DIR = Path(os.environ.get("DATA_DIR", "/data"))
 OPTIONS_PATH = Path(os.environ.get("OPTIONS_PATH", str(DATA_DIR / "options.json")))
@@ -88,6 +88,23 @@ def load_options(path=OPTIONS_PATH):
         "services": services,
         "read_services": read_services,
     }
+
+
+# Values the editor can save in the App panel. Anything else is refused.
+LANGUAGES = ("en",)
+DATE_FORMATS = ("YYYY-MM-DD", "DD-MM-YYYY", "MM/DD/YYYY", "D MMM YYYY")
+TIME_FORMATS = ("24h", "12h")
+WARNING_KEYS = ("tile-override-seen",)
+# Lists the App panel may save. A saved list replaces the list from the App options.
+SAVED_LIST_KEYS = ("allow_domains", "exclude_domains", "allow_entities", "exclude_entities")
+
+
+def apply_saved_options(options, saved):
+    """Settings saved in the App panel override the App options for the lists they contain."""
+    for key in SAVED_LIST_KEYS:
+        if key in saved:
+            options[key] = set(str(x) for x in saved[key])
+    return options
 
 
 def log_level(name):
