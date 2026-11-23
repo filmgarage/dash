@@ -1,12 +1,26 @@
 # Contract: DASH
 
-**Version:** 10.0 (0.11.0 adds 0l: Fully Kiosk tablets in the publish window, with `api/fully_devices` and `api/fully_show`; 0.10.0 adds 0k: history and camera endpoints for the viewer; 0.9.1 adds 0j: the skin format is stored as it is, and version 3 skins are accepted until 0.10.0; 0.9.0 extends `api/settings` in 3.5 with the App panel fields; adds 0i; 0h, 0g, 0f, 3.7 and 4.3 from 8.7 to 8.9; changes 4 and 4.1 for screen tokens; section 0e and 3.6 remain from 8.6)
+**Version:** 10.0 (0.12.0 adds 0m: `api/screen_rename` and `sun` in the default allowed domains; 0.11.0 adds 0l: Fully Kiosk tablets in the publish window, with `api/fully_devices` and `api/fully_show`; 0.10.0 adds 0k: history and camera endpoints for the viewer; 0.9.1 adds 0j: the skin format is stored as it is, and version 3 skins are accepted until 0.10.0; 0.9.0 extends `api/settings` in 3.5 with the App panel fields; adds 0i; 0h, 0g, 0f, 3.7 and 4.3 from 8.7 to 8.9; changes 4 and 4.1 for screen tokens; section 0e and 3.6 remain from 8.6)
 
 This contract describes how the designer (the editor front end) works with the DASH HA App. The HA App serves the
 editor through Home Assistant Ingress and serves the screens on port 8092 of the Home Assistant host.
 
 Everything not mentioned here is unchanged from version 7.1: the layout format (sections 3 and 3a), layout paths
 (4.8), skins (11), default icons (13), image naming and limits (14, 8) and the error table (5).
+
+## 0m. Changes in version 10.0 (screen rename, HA App 0.12.0)
+
+### `POST api/screen_rename?from=<name>&to=<name>` (Ingress)
+
+- Renames a screen. Its token, layout and device link stay the same. Its open push channels stay connected.
+- The new name follows the rules of `screen_save` (section 0i). The screen sensor moves to the new name.
+- `404` no screen called `from`. `409` the name `to` is already used. `400` the name `to` is not allowed.
+- Answer: `{"screen": {...}}` with the renamed screen.
+
+### Allowed domains
+
+- `sun` is in the default `allowed_domains`, so dark mode in skins can follow `sun.sun`. An install that has the old default
+  list in its options adds `sun` by hand. An install with its own list is not changed.
 
 ## 0l. Changes in version 10.0 (Fully Kiosk tablets, HA App 0.11.0)
 

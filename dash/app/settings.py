@@ -4,7 +4,7 @@ import logging
 import os
 from pathlib import Path
 
-APP_VERSION = "0.11.0"
+APP_VERSION = "0.12.0"
 
 DATA_DIR = Path(os.environ.get("DATA_DIR", "/data"))
 OPTIONS_PATH = Path(os.environ.get("OPTIONS_PATH", str(DATA_DIR / "options.json")))
@@ -26,7 +26,7 @@ DEFAULT_DOMAINS = [
     "light", "switch", "input_boolean", "scene", "script", "cover", "fan",
     "lock", "button", "input_button", "select", "input_select",
     "number", "input_number", "climate", "media_player",
-    "sensor", "binary_sensor", "weather", "image",
+    "sensor", "binary_sensor", "weather", "image", "sun",
 ]
 # Locks and alarm panels are excluded by default. Remove them from these lists to allow them.
 DEFAULT_EXCLUDE_DOMAINS = ["lock", "alarm_control_panel", "scene", "script", "button", "input_button"]

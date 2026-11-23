@@ -104,6 +104,7 @@ class ApiTests(unittest.IsolatedAsyncioTestCase):
         root = self.tmp.name
         with open(os.path.join(root, "screens.json"), "w", encoding="utf-8") as f:
             json.dump({"screens": [{"name": "Test", "layout": "kitchen/morning", "token": TOKEN}]}, f)
+        self.screens = ScreenStore(os.path.join(root, "screens.json"))
         self.store = Store(os.path.join(root, "layouts"), os.path.join(root, "www"), "/dash",
                            os.path.join(root, "published"))
         self.active = ActiveSet(os.path.join(root, "active.json"))
@@ -122,7 +123,7 @@ class ApiTests(unittest.IsolatedAsyncioTestCase):
                         "exclude_entities": set(),
                         "services": {"toggle", "turn_on"}, "read_services": {"toggle"}},
             STORE: self.store, ACTIVE: self.active, BRIDGE: self.bridge,
-            HUB: self.hub, HA: self.ha, IMAGES: {}, PICTURE_LOCKS: {}, PICTURE_SLOTS: asyncio.Semaphore(4), SCREENS: ScreenStore(os.path.join(root, "screens.json")), SAVED: {}, DETECTED_IP: "192.168.69.248",
+            HUB: self.hub, HA: self.ha, IMAGES: {}, PICTURE_LOCKS: {}, PICTURE_SLOTS: asyncio.Semaphore(4), SCREENS: self.screens, SAVED: {}, DETECTED_IP: "192.168.69.248",
             APP_SETTINGS_PATH: os.path.join(self.tmp.name, "settings.json"),
         }
         self.editor = TestClient(TestServer(build_app(editor_api.add_routes, state, [ingress_only])))
@@ -149,7 +150,7 @@ class ApiTests(unittest.IsolatedAsyncioTestCase):
     async def test_status_through_ingress(self):
         resp = await self.editor.get("/api/status", headers=INGRESS)
         self.assertEqual(resp.status, 200)
-        self.assertEqual((await resp.json())["version"], "0.11.0")
+        self.assertEqual((await resp.json())["version"], "0.12.0")
 
     async def test_publishing_adds_and_unpublishing_removes_entities(self):
         resp = await self.editor.post("/api/layout_save?path=kitchen/morning", json=LAYOUT, headers=INGRESS)
@@ -598,6 +599,29 @@ class ApiTests(unittest.IsolatedAsyncioTestCase):
                                         json={"device_id": "dev1", "layout": "kitchen/morning"})
         self.assertEqual(failed.status, 502)
         self.assertIn("Device is offline", (await failed.json())["error"])
+
+
+    async def test_screen_rename_keeps_the_token_and_refuses_bad_names(self):
+        self.publish_screen_layout()
+        for name in ("Hall", "Kitchen"):
+            made = await self.editor.post(f"/api/screen_save?name={name}&layout=kitchen/morning", headers=INGRESS)
+            self.assertEqual(made.status, 200)
+        token = self.app_screens().get("Hall")["token"]
+        ok = await self.editor.post("/api/screen_rename?from=Hall&to=Garden", headers=INGRESS)
+        self.assertEqual(ok.status, 200)
+        self.assertEqual(self.app_screens().get("Garden")["token"], token)
+        self.assertIsNone(self.app_screens().get("Hall"))
+        self.assertTrue(any(c[0] == "set_state" and c[1] == "sensor.dash_screen_garden" for c in self.ha.calls))
+        self.assertEqual((await self.editor.post("/api/screen_rename?from=Nope&to=X", headers=INGRESS)).status, 404)
+        self.assertEqual((await self.editor.post("/api/screen_rename?from=Garden&to=Kitchen", headers=INGRESS)).status, 409)
+        self.assertEqual((await self.editor.post("/api/screen_rename?from=Garden&to=bad/name", headers=INGRESS)).status, 400)
+
+    def app_screens(self):
+        return {s["name"]: s for s in self.screens.list()}
+
+    async def test_sun_is_an_allowed_domain_by_default(self):
+        from settings import DEFAULT_DOMAINS
+        self.assertIn("sun", DEFAULT_DOMAINS)
 
 
 class UnreachableHaTests(unittest.TestCase):

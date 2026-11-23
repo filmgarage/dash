@@ -574,6 +574,26 @@ async def screen_rotate(request):
 
 
 @handle_errors
+async def screen_rename(request):
+    """Renames a screen. Its token, layout and address stay the same, and its open push channels stay connected (0m)."""
+    app = request.app
+    old_name = request.query.get("from", "")
+    new_name = request.query.get("to", "")
+    try:
+        screen = app[SCREENS].rename(old_name, new_name)
+    except LookupError:
+        raise ApiError("no such screen", 404)
+    except FileExistsError:
+        raise ApiError("a screen with that name already exists", 409)
+    except ValueError as exc:
+        raise ApiError(str(exc), 400)
+    if old_name != screen["name"]:
+        await page_sensors.remove_screen(app, old_name, screen["layout"])
+    await page_sensors.write_screen(app, screen)
+    return web.json_response({"screen": screen})
+
+
+@handle_errors
 async def screen_delete(request):
     app = request.app
     name = request.query.get("name", "")
@@ -635,4 +655,5 @@ def add_routes(app):
     router.add_post("/api/fully_show", fully_show)
     router.add_post("/api/screen_save", screen_save)
     router.add_post("/api/screen_rotate", screen_rotate)
+    router.add_post("/api/screen_rename", screen_rename)
     router.add_post("/api/screen_delete", screen_delete)

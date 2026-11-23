@@ -85,6 +85,22 @@ class ScreenStore:
         self._save()
         return dict(screen)
 
+    def rename(self, old, new):
+        """Renames a screen. Its token, layout and device link stay the same.
+        LookupError: no such screen. FileExistsError: the new name is taken. ValueError: the new name is not allowed."""
+        screen = next((s for s in self.screens if s["name"] == old), None)
+        if screen is None:
+            raise LookupError(old)
+        if new == old:
+            return dict(screen)
+        if not NAME_RE.match(new or ""):
+            raise ValueError("screen name: letters, digits, space, dot, dash or underscore, up to 40 characters")
+        if any(s["name"] == new for s in self.screens):
+            raise FileExistsError(new)
+        screen["name"] = new
+        self._save()
+        return dict(screen)
+
     def rotate(self, name):
         for s in self.screens:
             if s["name"] == name:
