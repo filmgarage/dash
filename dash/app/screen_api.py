@@ -9,7 +9,8 @@ from errors import ApiError
 from ha_bridge import public_view
 from store import checked, parse_path
 from settings import UI_DIR
-from web_common import (MAX_IDS, MAX_SCREENS, MAX_WS_MESSAGE, SERVICE_NAME_RE, call_params, handle_errors,
+from history import history_answer, camera_answer
+from web_common import (ENTITY_RE, MAX_IDS, MAX_SCREENS, MAX_WS_MESSAGE, SERVICE_NAME_RE, call_params, handle_errors,
                         is_allowed, json_etag, picture_entry, picture_http, picture_response, request_token,
                         screen_scope, scoped_entities, service_data)
 from app_keys import BRIDGE, HA, HUB, OPTIONS, SCREENS, STORE
@@ -35,6 +36,30 @@ async def states(request):
         if entity_id in allowed and entity_id in app[BRIDGE].states:
             out[entity_id] = public_view(entity_id, app[BRIDGE].states[entity_id])
     return json_etag(request, {"states": out})
+
+
+def screen_entity(request, scope):
+    """The entity of a history or camera request: it must be on the layout of the screen (contract 10.0)."""
+    entity_id = request.query.get("entity", "")
+    if not ENTITY_RE.match(entity_id) or entity_id not in scoped_entities(request.app, scope):
+        raise ApiError("entity is not on this layout", 403)
+    return entity_id
+
+
+@handle_errors
+async def history(request):
+    scope = screen_scope(request)
+    entity_id = screen_entity(request, scope)
+    request.app[HA].require_token()
+    return await history_answer(request.app, entity_id, request.query)
+
+
+@handle_errors
+async def camera(request):
+    scope = screen_scope(request)
+    entity_id = screen_entity(request, scope)
+    request.app[HA].require_token()
+    return await camera_answer(request.app, entity_id, request.query)
 
 
 @handle_errors
@@ -205,6 +230,8 @@ def add_routes(app):
     router.add_get("/health", health)
     router.add_get("/states", states)
     router.add_get("/layout_load", layout_load)
+    router.add_get("/history", history)
+    router.add_get("/camera", camera)
     router.add_post("/service", service)
     router.add_get("/imagedata", imagedata)
     router.add_get("/image", image)

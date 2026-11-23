@@ -1,4 +1,6 @@
 """Home Assistant REST calls, made through the Supervisor."""
+from urllib.parse import quote
+
 from aiohttp import ClientTimeout
 
 from errors import ApiError
@@ -84,6 +86,19 @@ class Supervisor:
             data = await r.json()
         answer = (data.get("service_response") or {}).get(entity_id) or {}
         return answer.get("forecast") or []
+
+    async def history(self, entity_id, start, end):
+        """The recorder rows of one entity between start and end (GET /api/history/period), without attributes.
+        Returns the rows of the entity, in time order."""
+        stamp = quote(start.strftime("%Y-%m-%dT%H:%M:%S+00:00"), safe="")
+        params = {"filter_entity_id": entity_id, "end_time": end.strftime("%Y-%m-%dT%H:%M:%S+00:00"),
+                  "no_attributes": "1"}
+        async with self.session.get(f"{self.base}/api/history/period/{stamp}", params=params,
+                                    headers=self._headers(), timeout=TIMEOUT) as r:
+            if r.status != 200:
+                raise ApiError(f"Home Assistant answered {r.status}", 502)
+            data = await r.json()
+        return data[0] if data and isinstance(data[0], list) else []
 
     async def picture(self, entity_picture):
         """Fetch a picture from Home Assistant. Only its own image and camera proxy paths are allowed:

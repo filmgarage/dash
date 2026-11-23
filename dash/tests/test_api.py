@@ -38,7 +38,14 @@ class FakeHa:
             "light.hall": {"entity_id": "light.hall", "state": "on", "attributes": {}},
             "image.qr": {"entity_id": "image.qr", "state": "2026", "last_updated": "t1",
                          "attributes": {"entity_picture": "/api/image_proxy/image.qr?token=x"}},
+            "sensor.temp": {"entity_id": "sensor.temp", "state": "20.5",
+                            "attributes": {"unit_of_measurement": "°C"}},
+            "camera.front": {"entity_id": "camera.front", "state": "idle",
+                             "attributes": {"entity_picture": "/api/camera_proxy/camera.front?token=x"}},
+            "camera.off": {"entity_id": "camera.off", "state": "unavailable",
+                           "attributes": {"entity_picture": "/api/camera_proxy/camera.off?token=y"}},
         }
+        self.history_rows = {"sensor.temp": [{"state": "20.5", "last_changed": "2026-11-21T00:00:00+00:00"}]}
         self.calls = []
         self.internal_url = None
 
@@ -63,6 +70,9 @@ class FakeHa:
     async def picture(self, entity_picture):
         return b"png-bytes", "image/png"
 
+    async def history(self, entity_id, start, end):
+        return self.history_rows.get(entity_id, [])
+
 
 class ApiTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
@@ -82,7 +92,7 @@ class ApiTests(unittest.IsolatedAsyncioTestCase):
         self.hub = Hub(self.active, self.bridge)
         state = {
             OPTIONS: {"log_level": "info",
-                        "allow_domains": {"light", "sensor", "image"},
+                        "allow_domains": {"light", "sensor", "image", "camera"},
                         "screen_address_mode": "ip", "screen_ip": "",
                         "allow_entities": set(), "exclude_domains": {"lock", "alarm_control_panel"},
                         "exclude_entities": set(),
@@ -115,7 +125,7 @@ class ApiTests(unittest.IsolatedAsyncioTestCase):
     async def test_status_through_ingress(self):
         resp = await self.editor.get("/api/status", headers=INGRESS)
         self.assertEqual(resp.status, 200)
-        self.assertEqual((await resp.json())["version"], "0.9.1")
+        self.assertEqual((await resp.json())["version"], "0.10.0")
 
     async def test_publishing_adds_and_unpublishing_removes_entities(self):
         resp = await self.editor.post("/api/layout_save?path=kitchen/morning", json=LAYOUT, headers=INGRESS)
@@ -453,6 +463,66 @@ class ApiTests(unittest.IsolatedAsyncioTestCase):
     async def test_editor_image_refuses_other_entities_and_requests_outside_ingress(self):
         self.assertEqual((await self.editor.get("/api/image?entity=light.kitchen", headers=INGRESS)).status, 403)
         self.assertNotEqual((await self.editor.get("/api/image?entity=image.qr")).status, 200)
+
+
+    async def test_version_3_skins_are_refused_with_a_message_that_names_them(self):
+        resp = await self.editor.post("/api/publish_save?path=skins/old&type=json", headers=INGRESS,
+                                      json={"json": {"version": 3, "name": "old"}})
+        self.assertEqual(resp.status, 400)
+        self.assertIn("skin old is in version 3", (await resp.json())["error"])
+        resp = await self.editor.post("/api/publish_save?path=skins/new&type=json", headers=INGRESS,
+                                      json={"json": {"version": 1, "name": "new"}})
+        self.assertEqual(resp.status, 200)
+
+    async def test_screen_history_only_for_entities_on_its_layout(self):
+        self.publish_screen_layout([{"id": "t1", "type": "entity", "entity": "sensor.temp",
+                                     "x": 0, "y": 0, "w": 2, "h": 2}])
+        self.active.set_page("kitchen/morning", ["sensor.temp"])
+        resp = await self.screen.get(f"/history?entity=sensor.temp&token={TOKEN}")
+        self.assertEqual(resp.status, 200)
+        body = await resp.json()
+        self.assertEqual(body["unit"], "°C")
+        self.assertEqual(len(body["points"]), 120)
+        self.assertEqual(resp.headers["Cache-Control"], "no-store")
+        self.assertEqual((await self.screen.get("/history?entity=sensor.temp")).status, 401)
+        self.assertEqual((await self.screen.get(f"/history?entity=light.kitchen&token={TOKEN}")).status, 403)
+
+    async def test_history_refuses_bad_parameters_with_json_errors(self):
+        self.publish_screen_layout([{"id": "t1", "type": "entity", "entity": "sensor.temp",
+                                     "x": 0, "y": 0, "w": 2, "h": 2}])
+        self.active.set_page("kitchen/morning", ["sensor.temp"])
+        for query in ("hours=0", "hours=169", "points=5", "points=many"):
+            resp = await self.screen.get(f"/history?entity=sensor.temp&{query}&token={TOKEN}")
+            self.assertEqual(resp.status, 400, query)
+            self.assertIn("error", await resp.json())
+
+    async def test_editor_history_and_camera_follow_the_options(self):
+        resp = await self.editor.get("/api/history?entity=sensor.temp", headers=INGRESS)
+        self.assertEqual(resp.status, 200)
+        self.assertEqual((await self.editor.get("/api/history?entity=lock.front", headers=INGRESS)).status, 403)
+        self.assertNotEqual((await self.editor.get("/api/history?entity=sensor.temp")).status, 200)
+        resp = await self.editor.get("/api/camera?entity=camera.front", headers=INGRESS)
+        self.assertEqual(resp.status, 200)
+        self.assertEqual(await resp.read(), b"png-bytes")
+        self.assertEqual(resp.headers["Cache-Control"], "no-store")
+
+    async def test_camera_still_on_the_screen_and_unavailable_cameras(self):
+        self.publish_screen_layout([{"id": "c1", "type": "camera", "entity": "camera.front",
+                                     "x": 0, "y": 0, "w": 2, "h": 2},
+                                    {"id": "c2", "type": "camera", "entity": "camera.off",
+                                     "x": 2, "y": 0, "w": 2, "h": 2},
+                                    {"id": "t1", "type": "entity", "entity": "sensor.temp",
+                                     "x": 4, "y": 0, "w": 2, "h": 2}])
+        self.active.set_page("kitchen/morning", ["camera.front", "camera.off", "sensor.temp"])
+        resp = await self.screen.get(f"/camera?entity=camera.front&token={TOKEN}&width=640&v=123")
+        self.assertEqual(resp.status, 200)
+        self.assertEqual(resp.headers["Content-Type"], "image/png")
+        self.assertEqual(await resp.read(), b"png-bytes")
+        off = await self.screen.get(f"/camera?entity=camera.off&token={TOKEN}")
+        self.assertEqual(off.status, 503)
+        self.assertEqual((await off.json())["error"], "camera unavailable")
+        self.assertEqual((await self.screen.get(f"/camera?entity=sensor.temp&token={TOKEN}")).status, 400)
+        self.assertEqual((await self.screen.get(f"/camera?entity=camera.front&width=9000&token={TOKEN}")).status, 400)
 
 
 class UnreachableHaTests(unittest.TestCase):

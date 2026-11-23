@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.10.0 (contract 10.0)
+
+Changes since 0.9.1: history and camera data for the viewer.
+
+- `GET history` (screen port, `/dash/...` form) and `GET api/history` (editor): the history of one entity for the
+  history graph, for `hours` 1 to 168 and up to `points` 500. Numbers are averaged per time bucket, and a state that is
+  not a number is `null`. Uses the Home Assistant recorder.
+- `GET camera` (screen port) and `GET api/camera` (editor): the current still image of a `camera.*` entity, without
+  caching. A camera that is off or unavailable gives `503`.
+- Both follow the same rules as `states`: the screen token and its layout, or Ingress and the HA App options.
+- The forecast was already in the `states` answer since 0.8.4; nothing changed for it.
+- A skin saved in version 3 (the old model) is refused with a message that names it. The conversion of old skins is removed.
+- `docs/CONTRACT.md` is version 10.0 (section 0k).
+- App version raised to 0.10.0.
+
 ## 0.9.1 (contract 9.1)
 
 Changes since 0.9.0: documentation of the skin format. No change in behaviour.

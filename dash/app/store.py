@@ -355,6 +355,9 @@ class Store:
                 raise ApiError('the default pointer must be {"skin": "<name>"}', 400)
             if not os.path.isfile(self._under(self.publish_dir, ["skins", pointer], ".json")):
                 raise ApiError("the default pointer must name an existing skin", 400)
+        if isinstance(body, dict) and body.get("version") == 3:
+            raise ApiError(f"skin {parts[1]} is in version 3 (the old model), which this App no longer accepts; "
+                           "save it again in the new format", 400)
         content = json.dumps(body, indent=2, ensure_ascii=False)
         if len(content.encode("utf8")) > MAX_SKIN_BYTES:
             raise ApiError("skin is too large (maximum 256 KB)", 413)

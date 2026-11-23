@@ -1,12 +1,32 @@
 # Contract: DASH
 
-**Version:** 9.1 (0.9.1 adds 0j: the skin format is stored as it is, and version 3 skins are accepted until 0.10.0; 0.9.0 extends `api/settings` in 3.5 with the App panel fields; adds 0i; 0h, 0g, 0f, 3.7 and 4.3 from 8.7 to 8.9; changes 4 and 4.1 for screen tokens; section 0e and 3.6 remain from 8.6)
+**Version:** 10.0 (0.10.0 adds 0k: history and camera endpoints for the viewer; 0.9.1 adds 0j: the skin format is stored as it is, and version 3 skins are accepted until 0.10.0; 0.9.0 extends `api/settings` in 3.5 with the App panel fields; adds 0i; 0h, 0g, 0f, 3.7 and 4.3 from 8.7 to 8.9; changes 4 and 4.1 for screen tokens; section 0e and 3.6 remain from 8.6)
 
 This contract describes how the designer (the editor front end) works with the DASH HA App. The HA App serves the
 editor through Home Assistant Ingress and serves the screens on port 8092 of the Home Assistant host.
 
 Everything not mentioned here is unchanged from version 7.1: the layout format (sections 3 and 3a), layout paths
 (4.8), skins (11), default icons (13), image naming and limits (14, 8) and the error table (5).
+
+## 0k. Changes in version 10.0 (history and camera)
+
+HA App 0.10.0. Two endpoints for the viewer. Both use the rules of `states`: the screen token on port 8092 (`/history`,
+`/camera`), or Ingress for the editor (`api/history`, `api/camera`). On a screen only entities of the screen's published
+layout are allowed (`403`); in the editor only entities the HA App options allow (`403`). Errors are JSON
+`{"error": "<message>"}`: `400` for a wrong parameter, `404` for an unknown entity, `503` for a camera that is off or
+unavailable, `502` when Home Assistant does not answer.
+
+| Endpoint | Parameters | Answer |
+|---|---|---|
+| `GET history` | `entity` (required); `hours` 1 to 168, default 24; `points` 10 to 500, default 120 | `{entity, unit, start, end, points: [{t, v}]}`, times in UTC. `v` is the time-weighted average of the numeric states in each bucket, or `null` when the bucket has no numeric state (text, `unavailable`, `unknown`). Source: the Home Assistant recorder (`history/period`, without attributes). |
+| `GET camera` | `entity` (must be `camera.*`, required); `width` 64 to 1920, optional, checked but not used for scaling; `v` ignored | The current still image (`image/jpeg`, `image/png` or the type from Home Assistant) with `Cache-Control: no-store`. |
+
+- The forecast (`forecast_daily`, `forecast_hourly`) is already in the `states` answer of each `weather.*` entity since
+  HA App 0.8.4 (section 12.2). Nothing is added in 0.10.0. The App refreshes it at most every 30 minutes.
+- A skin saved in version 3 (the old model) is refused with `400` that names the skin. The conversion of old skins is
+  removed from the App.
+- The history and the still image are not cached: the viewer asks for the history every 5 minutes and for a still every
+  10 seconds.
 
 ## 0j. Changes in version 9.1 (skin format)
 

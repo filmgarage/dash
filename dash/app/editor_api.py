@@ -1,14 +1,17 @@
 """Editor API. Served through Home Assistant Ingress only, so it needs no token."""
 import asyncio
+import re
 from aiohttp import web
 
 from errors import ApiError
+from history import history_answer, camera_answer
 import page_sensors
 from network import resolve_screen_host, save_saved, valid_ipv4
-from settings import APP_VERSION, PUBLISH_URL, SCREEN_PORT, UI_DIR
+from settings import (APP_VERSION, DATE_FORMATS, LANGUAGES, PUBLISH_URL, SAVED_LIST_KEYS, SCREEN_PORT, TIME_FORMATS, UI_DIR,
+                      WARNING_KEYS, apply_saved_options)
 from store import checked, parse_path
 from ha_bridge import public_view, rest_view
-from web_common import (ENTITY_ATTRIBUTE_KEYS, MAX_IDS, SERVICE_NAME_RE, call_params, handle_errors, is_allowed, json_body, json_etag,
+from web_common import (ENTITY_ATTRIBUTE_KEYS, ENTITY_RE, MAX_IDS, SERVICE_NAME_RE, call_params, handle_errors, is_allowed, json_body, json_etag,
                         picture_entry, picture_http, picture_response, service_data)
 from app_keys import ACTIVE, APP_SETTINGS_PATH, BRIDGE, DETECTED_IP, HA, HUB, INTERNAL_URL, OPTIONS, SAVED, SCREENS, STORE
 
@@ -24,16 +27,94 @@ def screen_address(app):
             "screen_host_source": source}
 
 
+DOMAIN_RE = re.compile(r"^[a-z_]+$")
+SKIN_NAME_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+MAX_LIST_ITEMS = 500
+
+
+def settings_view(app):
+    """The settings the App panel shows. The same keys are returned by /api/status and after a save."""
+    options = app[OPTIONS]
+    saved = app.get(SAVED) or {}
+    return {
+        **screen_address(app),
+        "allow_domains": sorted(options["allow_domains"]),
+        "allow_entities": sorted(options["allow_entities"]),
+        "exclude_domains": sorted(options["exclude_domains"]),
+        "exclude_entities": sorted(options["exclude_entities"]),
+        "language": saved.get("language", LANGUAGES[0]),
+        "date_format": saved.get("date_format", DATE_FORMATS[0]),
+        "time_format": saved.get("time_format", TIME_FORMATS[0]),
+        "warnings": saved.get("warnings", {}),
+    }
+
+
+def settings_updates(body):
+    """Checks a settings body. Returns the values to save, or raises ApiError for the first problem."""
+    updates = {}
+    for key, value in body.items():
+        if key == "screen_ip":
+            ip = valid_ipv4(value)
+            if not ip:
+                raise ApiError("screen_ip must be an IPv4 address such as 192.168.1.10", 400)
+            updates[key] = ip
+        elif key in SAVED_LIST_KEYS:
+            if not isinstance(value, list) or len(value) > MAX_LIST_ITEMS:
+                raise ApiError(f"{key} must be a list of at most {MAX_LIST_ITEMS} items", 400)
+            pattern = DOMAIN_RE if key.endswith("domains") else ENTITY_RE
+            for item in value:
+                if not isinstance(item, str) or not pattern.match(item):
+                    raise ApiError(f"{key} has an invalid value: {item!r}", 400)
+            updates[key] = sorted(set(value))
+        elif key == "language":
+            if value not in LANGUAGES:
+                raise ApiError("language must be one of: " + ", ".join(LANGUAGES), 400)
+            updates[key] = value
+        elif key == "date_format":
+            if value not in DATE_FORMATS:
+                raise ApiError("date_format must be one of: " + ", ".join(DATE_FORMATS), 400)
+            updates[key] = value
+        elif key == "time_format":
+            if value not in TIME_FORMATS:
+                raise ApiError("time_format must be one of: " + ", ".join(TIME_FORMATS), 400)
+            updates[key] = value
+        elif key == "default_skin":
+            if not isinstance(value, str) or not SKIN_NAME_RE.match(value):
+                raise ApiError("default_skin is not a valid skin name", 400)
+            updates[key] = value
+        elif key == "warnings":
+            if not isinstance(value, dict):
+                raise ApiError("warnings must be an object", 400)
+            for flag, flag_value in value.items():
+                if flag not in WARNING_KEYS:
+                    raise ApiError(f"unknown warning: {flag}", 400)
+                if not isinstance(flag_value, bool):
+                    raise ApiError(f"warning {flag} must be true or false", 400)
+            updates[key] = dict(value)
+        else:
+            raise ApiError(f"unknown setting: {key}", 400)
+    return updates
+
+
 @handle_errors
-async def save_screen_ip(request):
+async def save_settings(request):
     body = await json_body(request)
-    ip = valid_ipv4(body.get("screen_ip"))
-    if not ip:
-        raise ApiError("screen_ip must be an IPv4 address such as 192.168.1.10", 400)
+    if body is None:
+        raise ApiError("no settings body found", 400)
+    updates = settings_updates(body)
     app = request.app
-    app[SAVED]["screen_ip"] = ip  # the dict is shared with the state; the app itself is not changed
-    save_saved(app[APP_SETTINGS_PATH], app[SAVED])
-    return web.json_response(screen_address(app))
+    saved = app[SAVED]  # shared with the state; the app itself is not changed
+    if "default_skin" in updates:
+        app[STORE].publish_skin(["skins", "_default"], {"skin": updates.pop("default_skin")})
+    if "screen_ip" in updates:
+        saved["screen_ip"] = updates.pop("screen_ip")
+    if "warnings" in updates:
+        saved["warnings"] = {**saved.get("warnings", {}), **updates.pop("warnings")}
+    for key in list(updates):
+        saved[key] = updates.pop(key)
+    apply_saved_options(app[OPTIONS], saved)
+    save_saved(app[APP_SETTINGS_PATH], saved)
+    return web.json_response(settings_view(app))
 
 
 @handle_errors
@@ -67,7 +148,7 @@ async def status(request):
         "active_entities": len(app[ACTIVE].entities),
         "allowed_domains": sorted(app[OPTIONS]["allow_domains"] - app[OPTIONS]["exclude_domains"]),
         "excluded_domains": sorted(app[OPTIONS]["exclude_domains"]),
-        **screen_address(app),
+        **settings_view(app),
         "screen_port": SCREEN_PORT,
         "publish_url_prefix": PUBLISH_URL + "/",
         "internal_url": app.get(INTERNAL_URL),
@@ -137,6 +218,27 @@ async def states(request):
             if s is not None:
                 out[entity_id] = rest_view(entity_id, s)
     return json_etag(request, {"states": out})
+
+
+@handle_errors
+async def history(request):
+    """History of one entity for the Ingress viewer (contract 10.0). Same rules as states."""
+    app = request.app
+    app[HA].require_token()
+    entity_id = request.query.get("entity", "")
+    if not is_allowed(app[OPTIONS], entity_id):
+        raise ApiError("entity not allowed", 403)
+    return await history_answer(app, entity_id, request.query)
+
+
+@handle_errors
+async def camera(request):
+    app = request.app
+    app[HA].require_token()
+    entity_id = request.query.get("entity", "")
+    if not is_allowed(app[OPTIONS], entity_id):
+        raise ApiError("entity not allowed", 403)
+    return await camera_answer(app, entity_id, request.query)
 
 
 @handle_errors
@@ -408,7 +510,7 @@ def add_routes(app):
     router.add_get("/", index)
     router.add_get("/status", status_page)
     router.add_get("/viewer", viewer_page)
-    router.add_post("/api/settings", save_screen_ip)
+    router.add_post("/api/settings", save_settings)
     router.add_get("/favicon.png", favicon)
     # Static assets of the editor (icon set, sample images). Relative URLs such as assets/mdi-icons.txt resolve here.
     router.add_static("/assets", UI_DIR / "assets", show_index=False)
@@ -416,6 +518,8 @@ def add_routes(app):
     router.add_get("/api/status", status)
     router.add_get("/api/entities", entities)
     router.add_get("/api/states", states)
+    router.add_get("/api/history", history)
+    router.add_get("/api/camera", camera)
     router.add_post("/api/service", service)
     router.add_get("/api/layouts", layouts)
     router.add_get("/api/layout_load", layout_load)
