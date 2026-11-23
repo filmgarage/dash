@@ -1,5 +1,43 @@
 # Changelog
 
+## 0.11.0 (contract 10.0)
+
+Changes since 0.10.0: Fully Kiosk tablets in the publish window, and the editor and viewer of editor 2.5 and viewer 33.
+
+### App
+- `GET api/fully_devices`: the Fully Kiosk tablets of Home Assistant, with their online state, their DASH screen, their
+  layout and their admin address (`http://<host>:2323`). `start` is `false` for now.
+- `POST api/fully_show`: sends a published layout to a tablet. The App creates the tablet's screen the first time (named
+  after the device, linked by its device id) and keeps its token. It loads the screen address in the tablet, and with
+  `start: true` also sets it as start page. Refusals: `400` unpublished layout, `404` unknown device, `502` Home Assistant.
+- `docs/CONTRACT.md` section 0l. App version raised to 0.11.0.
+
+### Front end (editor 2.5, viewer 33)
+- Skins: per-shape styles. A skin, and its dark, domain and state blocks, can carry `landscape` and `portrait` blocks on
+  top of the square default. The skin editor previews each icon as square, landscape and portrait.
+- The viewer counts tiles of 1.5 x their height or wider as landscape, and 1.5 x their width or taller as portrait. The
+  skin's shape blocks apply on top of the default.
+- New layout and new skin: start from Empty, Dash, Classic or Minimal.
+- Top bar: a "folder · Layout / Skin" button opens file management. A dropdown lists the saved files, with folders that
+  expand and collapse.
+- File management: drag layouts and skins into a folder, or back out to the top level.
+- Layers: folders. Make a folder from the selection (or an empty one), rename it with a double-click, and drag elements
+  between layers and in and out of folders.
+- Publish window (replaces the two links at the bottom of the page):
+  - Published dashboards: Publish and Publish again per dashboard, open on the screen address, open the preview through
+    Ingress, unpublish.
+  - Available screens: Fully Kiosk tablets with Show now, Set as start page and a settings button. Other screens with
+    Show this page, copy address and delete. "+ New" makes a screen.
+- The top bar Publish button reads "Publish…" and is greyed out while the publish window is open.
+- Built-in layouts and skins are ordinary, editable files. They are created only when nothing is stored yet. The
+  "built in" labels are gone; only the default skin keeps its "default" label.
+- Renamed: layout `default-layout-read-only` is now `default`, layout `minimal` is now `squares`, skin
+  `default-skin-read-only` is now `modernist`. The editor migrates stored files on connect.
+- Fix: the squares (minimal) layout follows the skin's shape blocks, so its layout and icon size no longer drift.
+
+### Breaking
+- Published pages that point to `default-layout-read-only` or `minimal` must be published again.
+
 ## 0.10.0 (contract 10.0)
 
 Changes since 0.9.1: history and camera data for the viewer.

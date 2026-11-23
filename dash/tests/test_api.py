@@ -1,4 +1,5 @@
 from app_keys import ACTIVE, APP_SETTINGS_PATH, BRIDGE, DETECTED_IP, HA, HUB, IMAGES, INTERNAL_URL, OPTIONS, PICTURE_LOCKS, PICTURE_SLOTS, SAVED, SCREENS, STORE
+from errors import ApiError
 import asyncio
 import base64
 import json
@@ -46,6 +47,13 @@ class FakeHa:
                            "attributes": {"entity_picture": "/api/camera_proxy/camera.off?token=y"}},
         }
         self.history_rows = {"sensor.temp": [{"state": "20.5", "last_changed": "2026-11-21T00:00:00+00:00"}]}
+        self.devices = [{"id": "dev1", "name": "Kitchen tablet", "config_entries": ["fk1"]},
+                        {"id": "dev2", "name": "Hall lamp", "config_entries": ["zigbee1"]}]
+        self.entity_registry = [{"entity_id": "sensor.kitchen_tablet_battery", "device_id": "dev1"}]
+        self.fully_entries = [{"entry_id": "fk1", "domain": "fully_kiosk", "data": {"host": "192.168.1.40"}}]
+        self.entities["sensor.kitchen_tablet_battery"] = {"entity_id": "sensor.kitchen_tablet_battery",
+                                                          "state": "87", "attributes": {}}
+        self.action_error = None
         self.calls = []
         self.internal_url = None
 
@@ -72,6 +80,22 @@ class FakeHa:
 
     async def history(self, entity_id, start, end):
         return self.history_rows.get(entity_id, [])
+
+    async def ws_calls(self, commands):
+        out = []
+        for command in commands:
+            if command["type"] == "config/device_registry/list":
+                out.append(self.devices)
+            elif command["type"] == "config/entity_registry/list":
+                out.append(self.entity_registry)
+            elif command["type"] == "config_entries/get":
+                out.append(self.fully_entries)
+        return out
+
+    async def call_action(self, domain, service, data):
+        self.calls.append((domain, service, data))
+        if self.action_error:
+            raise ApiError(self.action_error, 502)
 
 
 class ApiTests(unittest.IsolatedAsyncioTestCase):
@@ -125,7 +149,7 @@ class ApiTests(unittest.IsolatedAsyncioTestCase):
     async def test_status_through_ingress(self):
         resp = await self.editor.get("/api/status", headers=INGRESS)
         self.assertEqual(resp.status, 200)
-        self.assertEqual((await resp.json())["version"], "0.10.0")
+        self.assertEqual((await resp.json())["version"], "0.11.0")
 
     async def test_publishing_adds_and_unpublishing_removes_entities(self):
         resp = await self.editor.post("/api/layout_save?path=kitchen/morning", json=LAYOUT, headers=INGRESS)
@@ -523,6 +547,57 @@ class ApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((await off.json())["error"], "camera unavailable")
         self.assertEqual((await self.screen.get(f"/camera?entity=sensor.temp&token={TOKEN}")).status, 400)
         self.assertEqual((await self.screen.get(f"/camera?entity=camera.front&width=9000&token={TOKEN}")).status, 400)
+
+
+    def actions(self):
+        return [c for c in self.ha.calls if c[0] == "fully_kiosk"]
+
+    async def test_fully_devices_lists_the_tablets_of_the_integration(self):
+        self.publish_screen_layout()
+        resp = await self.editor.get("/api/fully_devices", headers=INGRESS)
+        self.assertEqual(resp.status, 200)
+        devices = (await resp.json())["devices"]
+        self.assertEqual(len(devices), 1)
+        tablet = devices[0]
+        self.assertEqual(tablet["name"], "Kitchen tablet")
+        self.assertTrue(tablet["online"])
+        self.assertIsNone(tablet["screen"])
+        self.assertEqual(tablet["admin_url"], "http://192.168.1.40:2323")
+        self.assertFalse(tablet["start"])
+
+    async def test_fully_show_creates_the_screen_and_loads_the_page(self):
+        self.publish_screen_layout()
+        resp = await self.editor.post("/api/fully_show", headers=INGRESS,
+                                      json={"device_id": "dev1", "layout": "kitchen/morning", "start": True})
+        self.assertEqual(resp.status, 200)
+        body = await resp.json()
+        self.assertEqual(body["screen"], "Kitchen tablet")
+        self.assertIn("/dash/viewer.html?layout=kitchen/morning#token=", body["url"])
+        self.assertEqual(self.actions()[0], ("fully_kiosk", "load_url", {"device_id": "dev1", "url": body["url"]}))
+        self.assertEqual(self.actions()[1][1], "set_config")
+        self.assertEqual(self.actions()[1][2], {"device_id": "dev1", "key": "startURL", "value": body["url"]})
+        token = body["url"].split("#token=")[1]
+        again = await self.editor.post("/api/fully_show", headers=INGRESS,
+                                       json={"device_id": "dev1", "layout": "kitchen/morning"})
+        self.assertEqual((await again.json())["url"].split("#token=")[1], token)
+        self.assertEqual(len(self.actions()), 3)
+        listed = (await (await self.editor.get("/api/fully_devices", headers=INGRESS)).json())["devices"][0]
+        self.assertEqual((listed["screen"], listed["layout"]), ("Kitchen tablet", "kitchen/morning"))
+
+    async def test_fully_show_refusals(self):
+        self.publish_screen_layout()
+        unpublished = await self.editor.post("/api/fully_show", headers=INGRESS,
+                                             json={"device_id": "dev1", "layout": "kitchen/none"})
+        self.assertEqual(unpublished.status, 400)
+        self.assertEqual((await unpublished.json())["error"], "layout is not published")
+        unknown = await self.editor.post("/api/fully_show", headers=INGRESS,
+                                         json={"device_id": "dev9", "layout": "kitchen/morning"})
+        self.assertEqual(unknown.status, 404)
+        self.ha.action_error = "Device is offline"
+        failed = await self.editor.post("/api/fully_show", headers=INGRESS,
+                                        json={"device_id": "dev1", "layout": "kitchen/morning"})
+        self.assertEqual(failed.status, 502)
+        self.assertIn("Device is offline", (await failed.json())["error"])
 
 
 class UnreachableHaTests(unittest.TestCase):

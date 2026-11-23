@@ -10,6 +10,7 @@ from network import resolve_screen_host, save_saved, valid_ipv4
 from settings import (APP_VERSION, DATE_FORMATS, LANGUAGES, PUBLISH_URL, SAVED_LIST_KEYS, SCREEN_PORT, TIME_FORMATS, UI_DIR,
                       WARNING_KEYS, apply_saved_options)
 from store import checked, parse_path
+from urllib.parse import quote
 from ha_bridge import public_view, rest_view
 from web_common import (ENTITY_ATTRIBUTE_KEYS, ENTITY_RE, MAX_IDS, SERVICE_NAME_RE, call_params, handle_errors, is_allowed, json_body, json_etag,
                         picture_entry, picture_http, picture_response, service_data)
@@ -442,6 +443,97 @@ async def image(request):
     return picture_http(request, await picture_entry(app, entity_id))
 
 
+FULLY_DOMAIN = "fully_kiosk"
+FULLY_ADMIN_PORT = 2323
+DEVICE_NAME_CHARS = re.compile(r"[^A-Za-z0-9 _.-]+")
+
+
+def device_screen_name(name):
+    """A device name as a screen name: the characters the screen names allow, at most 40."""
+    cleaned = DEVICE_NAME_CHARS.sub(" ", name or "").strip()[:40].strip()
+    return cleaned or "Fully Kiosk"
+
+
+async def fully_inventory(app):
+    """The Fully Kiosk tablets in Home Assistant, with their screen (contract 10.0, section 0l)."""
+    ha = app[HA]
+    ha.require_token()
+    devices, entities, entries = await ha.ws_calls([
+        {"type": "config/device_registry/list"},
+        {"type": "config/entity_registry/list"},
+        {"type": "config_entries/get", "domain": FULLY_DOMAIN},
+    ])
+    states = {s["entity_id"]: s for s in await ha.states()}
+    entry_by_id = {e["entry_id"]: e for e in entries or [] if e.get("domain") == FULLY_DOMAIN}
+    screens = {s.get("device_id"): s for s in app[SCREENS].list() if s.get("device_id")}
+    entities_of = {}
+    for entity in entities or []:
+        if entity.get("device_id"):
+            entities_of.setdefault(entity["device_id"], []).append(entity["entity_id"])
+    tablets = []
+    for device in devices or []:
+        if not entry_by_id.keys() & set(device.get("config_entries") or []):
+            continue
+        ids = entities_of.get(device["id"], [])
+        online = any(states.get(eid) and states[eid].get("state") != "unavailable" for eid in ids)
+        screen = screens.get(device["id"])
+        host = None
+        for entry_id in device.get("config_entries") or []:
+            if entry_id in entry_by_id:
+                host = (entry_by_id[entry_id].get("data") or {}).get("host")
+        tablets.append({
+            "device_id": device["id"],
+            "name": device.get("name_by_user") or device.get("name") or device["id"],
+            "online": online,
+            "screen": screen["name"] if screen else None,
+            "layout": screen["layout"] if screen else None,
+            "admin_url": f"http://{host}:{FULLY_ADMIN_PORT}" if host else None,
+            # The start URL of the tablet is not read by this App yet, so start is false (section 0l).
+            "start": False,
+        })
+    return tablets
+
+
+@handle_errors
+async def fully_devices(request):
+    return web.json_response({"devices": await fully_inventory(request.app)})
+
+
+@handle_errors
+async def fully_show(request):
+    """Sends a published layout to a Fully Kiosk tablet, optionally as its start page (section 0l)."""
+    app = request.app
+    body = await json_body(request) or {}
+    device_id = body.get("device_id")
+    if not isinstance(device_id, str) or not device_id:
+        raise ApiError("device_id is required", 400)
+    layout = parse_path(body.get("layout") if isinstance(body.get("layout"), str) else None)
+    if layout is None or not app[STORE].is_published(layout):
+        raise ApiError("layout is not published", 400)
+    tablets = await fully_inventory(app)
+    tablet = next((t for t in tablets if t["device_id"] == device_id), None)
+    if tablet is None:
+        raise ApiError("device not found", 404)
+    try:
+        screen = app[SCREENS].save_device_screen(device_id, device_screen_name(tablet["name"]), "/".join(layout))
+    except ValueError as exc:
+        raise ApiError(str(exc), 400)
+    if tablet["layout"] is not None and tablet["layout"] != screen["layout"]:
+        await app[HUB].close_for_token(screen["token"])
+    await page_sensors.write_screen(app, screen)
+    host = screen_address(app)["screen_host"]
+    if not host:
+        raise ApiError("no screen address: set it in the App panel first", 400)
+    skin = app[STORE].load_published(layout).get("skin")
+    url = (f"http://{host}:{SCREEN_PORT}{PUBLISH_URL}/viewer.html?layout={quote(screen['layout'], safe='/')}"
+           + (f"&skin={quote(skin, safe='')}" if isinstance(skin, str) and skin else "")
+           + f"#token={screen['token']}")
+    await app[HA].call_action(FULLY_DOMAIN, "load_url", {"device_id": device_id, "url": url})
+    if body.get("start") is True:
+        await app[HA].call_action(FULLY_DOMAIN, "set_config", {"device_id": device_id, "key": "startURL", "value": url})
+    return web.json_response({"screen": screen["name"], "url": url})
+
+
 @handle_errors
 async def screens_list(request):
     return web.json_response({"screens": request.app[SCREENS].list()})
@@ -539,6 +631,8 @@ def add_routes(app):
     router.add_get("/api/file", published_file)
     router.add_get("/api/active", active)
     router.add_get("/api/screens", screens_list)
+    router.add_get("/api/fully_devices", fully_devices)
+    router.add_post("/api/fully_show", fully_show)
     router.add_post("/api/screen_save", screen_save)
     router.add_post("/api/screen_rotate", screen_rotate)
     router.add_post("/api/screen_delete", screen_delete)

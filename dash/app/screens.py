@@ -69,6 +69,22 @@ class ScreenStore:
         self._save()
         return dict(screen)
 
+    def save_device_screen(self, device_id, name, layout):
+        """The screen of a Fully Kiosk tablet, found by its device id. Created the first time, with the device name."""
+        for s in self.screens:
+            if s.get("device_id") == device_id:
+                s["layout"] = layout
+                self._save()
+                return dict(s)
+        if not NAME_RE.match(name or ""):
+            raise ValueError("the device name cannot be used as a screen name; rename the device in Home Assistant")
+        if any(s["name"] == name for s in self.screens):
+            raise ValueError(f"a screen named {name} already exists; rename it first")
+        screen = {"name": name, "layout": layout, "token": new_token(), "device_id": device_id}
+        self.screens.append(screen)
+        self._save()
+        return dict(screen)
+
     def rotate(self, name):
         for s in self.screens:
             if s["name"] == name:

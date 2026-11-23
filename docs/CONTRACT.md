@@ -1,12 +1,51 @@
 # Contract: DASH
 
-**Version:** 10.0 (0.10.0 adds 0k: history and camera endpoints for the viewer; 0.9.1 adds 0j: the skin format is stored as it is, and version 3 skins are accepted until 0.10.0; 0.9.0 extends `api/settings` in 3.5 with the App panel fields; adds 0i; 0h, 0g, 0f, 3.7 and 4.3 from 8.7 to 8.9; changes 4 and 4.1 for screen tokens; section 0e and 3.6 remain from 8.6)
+**Version:** 10.0 (0.11.0 adds 0l: Fully Kiosk tablets in the publish window, with `api/fully_devices` and `api/fully_show`; 0.10.0 adds 0k: history and camera endpoints for the viewer; 0.9.1 adds 0j: the skin format is stored as it is, and version 3 skins are accepted until 0.10.0; 0.9.0 extends `api/settings` in 3.5 with the App panel fields; adds 0i; 0h, 0g, 0f, 3.7 and 4.3 from 8.7 to 8.9; changes 4 and 4.1 for screen tokens; section 0e and 3.6 remain from 8.6)
 
 This contract describes how the designer (the editor front end) works with the DASH HA App. The HA App serves the
 editor through Home Assistant Ingress and serves the screens on port 8092 of the Home Assistant host.
 
 Everything not mentioned here is unchanged from version 7.1: the layout format (sections 3 and 3a), layout paths
 (4.8), skins (11), default icons (13), image naming and limits (14, 8) and the error table (5).
+
+## 0l. Changes in version 10.0 (Fully Kiosk tablets, HA App 0.11.0)
+
+The editor's publish window lists the Fully Kiosk tablets of Home Assistant and sends a published layout to one of them.
+Both endpoints are on Ingress only (`api/...`). Errors are JSON `{"error": "<message>"}`.
+
+### `GET api/fully_devices`
+
+```json
+{"devices": [
+  {"device_id": "a674c90eca95eca91f6020415de07713", "name": "Kitchen tablet", "online": true,
+   "screen": "Kitchen tablet", "layout": "kitchen/morning", "start": true,
+   "admin_url": "http://192.168.1.40:2323"}
+]}
+```
+
+- The devices of the integration `fully_kiosk` in the device registry. `name` is the name the user set, or the default.
+- `online` is true when one of the device's entities is not `unavailable`.
+- `screen` and `layout` are those of the DASH screen that belongs to the device (`device_id` on the screen), or `null`.
+- `admin_url` is `http://<host>:2323`, with the host of the integration's config entry, or `null`.
+- `start` is always `false` in this version: the start URL of a tablet is not read yet.
+- No Fully Kiosk integration: `{"devices": []}`.
+
+### `POST api/fully_show`
+
+Body: `{"device_id": "...", "layout": "kitchen/morning", "start": true|false}`.
+
+1. The layout must be published: `400 layout is not published`. An unknown device: `404 device not found`.
+2. The screen of the device is created the first time, named after the device (letters, digits, space, dot, dash and
+   underscore, at most 40 characters), and linked by `device_id`. Otherwise its layout changes. The token stays the same.
+   A name that is already used by another screen gives `400`.
+3. The URL is `http://<screen host>:8092/dash/viewer.html?layout=<layout>#token=<token>`, with `&skin=<name>` when the
+   published layout names a skin.
+4. The App calls `fully_kiosk.load_url` with `device_id` and `url`.
+5. With `"start": true` it also calls `fully_kiosk.set_config` with `key: startURL` and `value: <url>`.
+6. Answer: `{"screen": "Kitchen tablet", "url": "http://..."}`. A failed Home Assistant action: `502` with its message.
+
+The App reads the registries with the Home Assistant websocket API (`config/device_registry/list`,
+`config/entity_registry/list`, `config_entries/get`) and calls the actions through the REST services API.
 
 ## 0k. Changes in version 10.0 (history and camera)
 

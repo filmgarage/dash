@@ -1,4 +1,4 @@
-# DASH HA App (v0.10.0)
+# DASH HA App (v0.11.0)
 
 DASH is a Home Assistant app for simple, light web dashboards on screens such as a Fully Kiosk photo frame or a
 wall tablet. You design a layout in the DASH editor, publish it, and the screen shows it with live values from

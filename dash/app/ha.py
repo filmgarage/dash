@@ -1,11 +1,15 @@
 """Home Assistant REST calls, made through the Supervisor."""
+import asyncio
+import json
 from urllib.parse import quote
 
+import aiohttp
 from aiohttp import ClientTimeout
 
 from errors import ApiError
 
 TIMEOUT = ClientTimeout(total=15)
+WS_TIMEOUT = 10
 MAX_PICTURE_BYTES = 5_000_000
 PICTURE_PATHS = ("/api/image_proxy/", "/api/camera_proxy/")
 PICTURE_TYPES = ("image/png", "image/jpeg", "image/webp", "image/gif")  # SVG is refused: it can contain scripts
@@ -25,6 +29,7 @@ def picture_path_allowed(path):
 class Supervisor:
     def __init__(self, base_url, token, session):
         self.base = base_url.rstrip("/") + "/core"
+        self.ws_url = self.base + "/api/websocket"
         self.token = token
         self.session = session
 
@@ -67,6 +72,40 @@ class Supervisor:
                                      headers=self._headers(), timeout=TIMEOUT) as r:
             if r.status >= 300:
                 raise ApiError(f"Home Assistant answered {r.status} for {entity_id}", 502)
+
+    async def ws_calls(self, commands):
+        """Runs Home Assistant websocket commands on one connection, one after the other. Returns each result, in order.
+        Used for the registries, which the REST API does not offer."""
+        results = []
+        try:
+            async with self.session.ws_connect(self.ws_url, timeout=WS_TIMEOUT) as ws:
+                await asyncio.wait_for(ws.receive_json(), WS_TIMEOUT)
+                await ws.send_json({"type": "auth", "access_token": self.token})
+                reply = await asyncio.wait_for(ws.receive_json(), WS_TIMEOUT)
+                if reply.get("type") != "auth_ok":
+                    raise ApiError("Home Assistant refused the websocket connection", 502)
+                for number, command in enumerate(commands, start=1):
+                    await ws.send_json({"id": number, **command})
+                    reply = await asyncio.wait_for(ws.receive_json(), WS_TIMEOUT)
+                    if not reply.get("success"):
+                        message = (reply.get("error") or {}).get("message", "command failed")
+                        raise ApiError(f"Home Assistant: {message}", 502)
+                    results.append(reply.get("result"))
+        except (asyncio.TimeoutError, aiohttp.ClientError, OSError, TypeError, ValueError):
+            raise ApiError("Home Assistant did not answer the websocket request", 502)
+        return results
+
+    async def call_action(self, domain, service, data):
+        """Calls a service that is not tied to one entity, for example fully_kiosk.load_url with a device_id."""
+        async with self.session.post(f"{self.base}/api/services/{domain}/{service}", json=data,
+                                     headers=self._headers(), timeout=TIMEOUT) as r:
+            if r.status >= 300:
+                text = await r.text()
+                try:
+                    message = json.loads(text).get("message") or text
+                except (ValueError, AttributeError):
+                    message = text
+                raise ApiError(f"Home Assistant: {(message or str(r.status))[:200]}", 502)
 
     async def call_service(self, entity_id, service, data):
         domain = entity_id.split(".", 1)[0]
