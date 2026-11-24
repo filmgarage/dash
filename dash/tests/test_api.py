@@ -150,7 +150,7 @@ class ApiTests(unittest.IsolatedAsyncioTestCase):
     async def test_status_through_ingress(self):
         resp = await self.editor.get("/api/status", headers=INGRESS)
         self.assertEqual(resp.status, 200)
-        self.assertEqual((await resp.json())["version"], "0.12.2")
+        self.assertEqual((await resp.json())["version"], "0.12.3")
 
     async def test_publishing_adds_and_unpublishing_removes_entities(self):
         resp = await self.editor.post("/api/layout_save?path=kitchen/morning", json=LAYOUT, headers=INGRESS)
@@ -630,6 +630,8 @@ class ApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(await resp.read()) > 100000, True)
         self.assertEqual((await self.screen.get("/dash/assets/fonts/OFL-Archivo.txt")).status, 200)
         self.assertEqual((await self.editor.get("/assets/fonts/Archivo-Variable.woff2", headers=INGRESS)).status, 200)
+        self.assertEqual((await self.screen.get("/dash/assets/fonts/Roboto-Italic-Variable.woff2")).status, 200)
+        self.assertEqual((await self.editor.get("/assets/fonts/Archivo-Italic-Variable.woff2", headers=INGRESS)).status, 200)
 
 
 class UnreachableHaTests(unittest.TestCase):
